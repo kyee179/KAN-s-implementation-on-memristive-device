@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kan-memristor"
+version = "0.1.0"
+description = "KAN experiments and memristive-device mapping prototypes"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "kyee179" }]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
