@@ -1,4 +1,4 @@
-﻿# KAN's Implementation on Memristive Devices
+# KAN's Implementation on Memristive Devices
 
 This repository contains experiments and implementation work for applying Kolmogorov-Arnold Networks (KANs) to memristive hardware.
 
@@ -21,6 +21,7 @@ Create the environment on drive D:
 ```powershell
 conda env create -p D:\UCL\course\research_project\conda_envs\kan-memristor -f environment.yml
 conda activate D:\UCL\course\research_project\conda_envs\kan-memristor
+pip install -e D:\UCL\course\research_project\KANExperiment
 python -m ipykernel install --user --name kan-memristor --display-name "Python (kan-memristor)"
 ```
 
@@ -40,3 +41,13 @@ data/raw/               Local raw datasets, ignored by git except .gitkeep
 data/processed/         Local processed datasets, ignored by git except .gitkeep
 docs/                   Project notes and theory references
 ```
+## Baseline KAN Tests
+
+Run the first validation experiments with:
+
+```powershell
+conda activate D:\UCL\course\research_project\conda_envs\kan-memristor
+python -m kan_memristor.experiments.baseline_kan
+```
+
+For details, see `docs/kan_baseline_experiments.md`.
