@@ -115,6 +115,62 @@ class BSplineKAN(nn.Module):
         return x
 
 
+class OddPolynomialKANLayer(nn.Module):
+    """KAN layer whose edge functions are c1*x + c3*x^3 + c5*x^5."""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        powers: tuple[int, ...] = (1, 3, 5),
+    ) -> None:
+        super().__init__()
+        if not powers:
+            raise ValueError("powers must not be empty")
+        if any(power <= 0 or power % 2 == 0 for power in powers):
+            raise ValueError("powers must be positive odd integers")
+        self.in_features = in_features
+        self.out_features = out_features
+        self.register_buffer("powers", torch.tensor(powers, dtype=torch.float32))
+        self.coefficients = nn.Parameter(torch.empty(out_features, in_features, len(powers)))
+        self.bias = nn.Parameter(torch.zeros(out_features))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        with torch.no_grad():
+            self.coefficients.zero_()
+            self.coefficients[..., 0].normal_(mean=0.0, std=0.35)
+            if self.coefficients.shape[-1] > 1:
+                self.coefficients[..., 1:].normal_(mean=0.0, std=0.03)
+        nn.init.zeros_(self.bias)
+
+    def _basis(self, x: torch.Tensor) -> torch.Tensor:
+        powers = self.powers.to(dtype=x.dtype, device=x.device)
+        return x.unsqueeze(-1).pow(powers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        basis = self._basis(x)
+        edge_values = torch.einsum("bik,oik->bo", basis, self.coefficients)
+        return edge_values + self.bias
+
+
+class OddPolynomialKAN(nn.Module):
+    """A compact KAN using odd-polynomial edge functions only."""
+
+    def __init__(self, widths: list[int], powers: tuple[int, ...] = (1, 3, 5)) -> None:
+        super().__init__()
+        if len(widths) < 2:
+            raise ValueError("widths must contain at least input and output sizes")
+        self.layers = nn.ModuleList(
+            [OddPolynomialKANLayer(widths[i], widths[i + 1], powers=powers) for i in range(len(widths) - 1)]
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
 # Backwards-compatible aliases for older local notebooks or scripts.
 KANLayer = BSplineKANLayer
 KAN = BSplineKAN

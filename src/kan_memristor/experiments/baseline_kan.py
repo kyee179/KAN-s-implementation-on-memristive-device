@@ -17,7 +17,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from kan_memristor.datasets import SupervisedDataset, load_dataset
-from kan_memristor.models import BSplineKAN, count_parameters, make_mlp
+from kan_memristor.models import BSplineKAN, OddPolynomialKAN, count_parameters, make_mlp
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,8 @@ def _set_seed(seed: int) -> None:
 def _make_model(config: TrainConfig) -> nn.Module:
     if config.model == "kan":
         return BSplineKAN(config.widths, num_basis=config.num_basis, degree=config.spline_degree)
+    if config.model == "odd_poly_kan":
+        return OddPolynomialKAN(config.widths)
     if config.model == "mlp":
         return make_mlp(config.widths)
     raise ValueError(f"Unknown model: {config.model}")
@@ -78,7 +80,7 @@ def _evaluate(model: nn.Module, dataset: SupervisedDataset, loss_fn: nn.Module) 
     if dataset.task == "regression":
         mse = float(np.mean((predictions - dataset.y_test) ** 2))
         return loss, mse, None, predictions
-    probabilities = 1.0 / (1.0 + np.exp(-predictions))
+    probabilities = 1.0 / (1.0 + np.exp(-np.clip(predictions, -60.0, 60.0)))
     classes = (probabilities >= 0.5).astype(np.float32)
     accuracy = float(np.mean(classes == dataset.y_test))
     return loss, None, accuracy, probabilities
@@ -149,10 +151,16 @@ def _plot_predictions(dataset: SupervisedDataset, predictions: np.ndarray, outpu
 
 def default_widths(dataset: str, model: str) -> list[int]:
     if dataset == "complicated_function":
-        return [2, 16, 16, 1] if model == "kan" else [2, 64, 64, 1]
+        if model in {"kan", "odd_poly_kan"}:
+            return [2, 16, 16, 1]
+        if model == "mlp":
+            return [2, 64, 64, 1]
     if dataset == "taglietti_yinyang":
-        return [2, 12, 1] if model == "kan" else [2, 64, 64, 1]
-    raise ValueError(f"Unknown dataset: {dataset}")
+        if model in {"kan", "odd_poly_kan"}:
+            return [2, 12, 1]
+        if model == "mlp":
+            return [2, 64, 64, 1]
+    raise ValueError(f"Unknown dataset/model combination: {dataset}/{model}")
 
 
 def run_suite(args: argparse.Namespace) -> list[ExperimentResult]:
