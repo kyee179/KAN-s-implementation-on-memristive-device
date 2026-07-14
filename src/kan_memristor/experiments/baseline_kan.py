@@ -17,7 +17,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from kan_memristor.datasets import SupervisedDataset, load_dataset
-from kan_memristor.models import RBFKAN, count_parameters, make_mlp
+from kan_memristor.models import BSplineKAN, count_parameters, make_mlp
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,7 @@ class TrainConfig:
     model: str
     widths: list[int]
     num_basis: int
+    spline_degree: int
     epochs: int
     batch_size: int
     learning_rate: float
@@ -52,7 +53,7 @@ def _set_seed(seed: int) -> None:
 
 def _make_model(config: TrainConfig) -> nn.Module:
     if config.model == "kan":
-        return RBFKAN(config.widths, num_basis=config.num_basis)
+        return BSplineKAN(config.widths, num_basis=config.num_basis, degree=config.spline_degree)
     if config.model == "mlp":
         return make_mlp(config.widths)
     raise ValueError(f"Unknown model: {config.model}")
@@ -165,6 +166,7 @@ def run_suite(args: argparse.Namespace) -> list[ExperimentResult]:
                 model=model_name,
                 widths=default_widths(dataset_name, model_name),
                 num_basis=args.num_basis,
+                spline_degree=args.spline_degree,
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 learning_rate=args.learning_rate,
@@ -192,6 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--learning-rate", type=float, default=3e-3)
     parser.add_argument("--num-basis", type=int, default=13)
+    parser.add_argument("--spline-degree", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", default="outputs/baseline_tests")
     return parser.parse_args()
