@@ -1,4 +1,4 @@
-# KAN's Implementation on Memristive Devices
+﻿# KAN's Implementation on Memristive Devices
 
 This repository contains experiments and implementation work for applying Kolmogorov-Arnold Networks (KANs) to memristive hardware.
 
@@ -51,3 +51,23 @@ python -m kan_memristor.experiments.baseline_kan
 ```
 
 For details, see `docs/kan_baseline_experiments.md`.
+
+## Hardware Physical Models
+
+Run hardware block characterization with:
+
+```powershell
+python -m kan_memristor.experiments.hardware_characterization
+```
+
+For details, see `docs/hardware_physical_models.md`.
+
+## Hardware KAN Training
+
+Run the first memristive odd-polynomial KAN training experiment with:
+
+```powershell
+python -m kan_memristor.experiments.hardware_train
+```
+
+For the current method and results, see `docs/hardware_kan_training.md`.

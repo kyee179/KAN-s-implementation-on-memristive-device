@@ -1,8 +1,11 @@
-import numpy as np
+﻿import numpy as np
+import torch
 
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplier
 from kan_memristor.hardware.memristor import DynamicMemdiode, RRAMWeightMapper
 from kan_memristor.hardware.odd_polynomial_edge import HardwareOddPolynomialEdge
+from kan_memristor.hardware.physical_kan import MemristivePulseOptimizer, PhysicalOddPolynomialKAN, PulseUpdateConfig
+from kan_memristor.models import OddPolynomialKAN, OddPolynomialKANLayer
 
 
 def test_memdiode_current_increases_with_state():
@@ -47,3 +50,55 @@ def test_hardware_odd_polynomial_edge_is_odd_symmetric():
     y = edge(x)
     assert np.allclose(y[0], -y[2], atol=1e-8)
     assert abs(y[1]) < 1e-12
+
+
+def test_physical_kan_from_software_preserves_shape_and_counts_memristors():
+    software = OddPolynomialKAN([2, 3, 1])
+    mapper = RRAMWeightMapper(n_states=16, r_lrs=1e4, r_hrs=1e6)
+    physical = PhysicalOddPolynomialKAN.from_software_model(software, mapper=mapper, input_scale_v=0.2)
+    x = torch.randn(5, 2)
+    y = physical(x)
+    expected_memristors = 2 * ((3 * 2 * 3) + (1 * 3 * 3))
+    assert y.shape == (5, 1)
+    assert physical.count_memristors() == expected_memristors
+    assert all(layer.current_to_voltage_gain.item() > 0.0 for layer in physical.layers)
+
+
+def test_physical_layer_approximates_software_edge_after_mapping():
+    software = OddPolynomialKANLayer(1, 1)
+    with torch.no_grad():
+        software.coefficients[:] = torch.tensor([[[0.25, -0.10, 0.05]]])
+        software.bias.zero_()
+    physical = PhysicalOddPolynomialKAN.from_software_model(
+        OddPolynomialKAN([1, 1]),
+        mapper=RRAMWeightMapper(n_states=128, r_lrs=1e4, r_hrs=1e6),
+        input_scale_v=0.2,
+    )
+    physical.layers[0] = physical.layers[0].from_software_layer(
+        software,
+        mapper=RRAMWeightMapper(n_states=128, r_lrs=1e4, r_hrs=1e6),
+    )
+    x = torch.linspace(-0.8, 0.8, 9).unsqueeze(1)
+    assert torch.max(torch.abs(software(x) - physical(x))).item() < 0.02
+
+
+def test_memristive_pulse_optimizer_updates_conductance_states():
+    software = OddPolynomialKAN([1, 1])
+    mapper = RRAMWeightMapper(n_states=16, r_lrs=1e4, r_hrs=1e6)
+    physical = PhysicalOddPolynomialKAN.from_software_model(software, mapper=mapper, input_scale_v=0.2)
+    optimizer = MemristivePulseOptimizer(
+        physical,
+        PulseUpdateConfig(max_pulses_per_update=1, gradient_deadzone_quantile=0.0, conductance_learning_rate=1e-5),
+    )
+    x = torch.tensor([[-0.5], [0.5]])
+    target = torch.tensor([[0.5], [-0.5]])
+    loss = torch.nn.functional.mse_loss(physical(x), target)
+    loss.backward()
+    before = physical.layers[0].g_pos.detach().clone()
+    pulse_counts = optimizer.step()
+    after = physical.layers[0].g_pos.detach()
+    assert pulse_counts["set_pulses"] + pulse_counts["reset_pulses"] > 0
+    assert not torch.equal(before, after) or not torch.equal(physical.layers[0].g_neg.detach(), before)
+    assert torch.all(after >= mapper.g_min)
+    assert torch.all(after <= mapper.g_max)
+
