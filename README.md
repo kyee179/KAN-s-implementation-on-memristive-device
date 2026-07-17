@@ -71,3 +71,13 @@ python -m kan_memristor.experiments.hardware_train
 ```
 
 For the current method and results, see `docs/hardware_kan_training.md`.
+
+## Complete Physical Simulation
+
+Run the stricter physical path with Gilbert-generated power rows and DynamicMemdiode pulse programming:
+
+```powershell
+python -m kan_memristor.experiments.hardware_train --complete-physical
+```
+
+For results and the remaining physical-system checklist, see `docs/complete_physical_simulation.md`.

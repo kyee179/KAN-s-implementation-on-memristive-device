@@ -1,4 +1,4 @@
-﻿"""Train and evaluate the memristive odd-polynomial KAN."""
+﻿"""Train and evaluate memristive odd-polynomial KAN variants."""
 
 from __future__ import annotations
 
@@ -18,9 +18,12 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from kan_memristor.datasets import SupervisedDataset, load_dataset
 from kan_memristor.experiments.baseline_kan import default_widths
-from kan_memristor.hardware.memristor import RRAMWeightMapper
+from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplierParameters
+from kan_memristor.hardware.memristor import DynamicMemdiodeParameters, RRAMWeightMapper
 from kan_memristor.hardware.physical_kan import (
+    DynamicPulseConfig,
     MemristivePulseOptimizer,
+    PhysicalForwardConfig,
     PhysicalOddPolynomialKAN,
     PulseUpdateConfig,
 )
@@ -44,6 +47,16 @@ class HardwareTrainConfig:
     max_pulses_per_update: int
     gradient_deadzone_quantile: float
     seed: int
+    complete_physical: bool
+    rram_iv_nonlinearity: float
+    variability_std: float
+    stuck_lrs_probability: float
+    stuck_hrs_probability: float
+    gilbert_product_gain: float | None
+    gilbert_input_linear_range: float
+    dynamic_set_voltage: float
+    dynamic_reset_voltage: float
+    dynamic_pulse_width_s: float
 
 
 @dataclass(frozen=True)
@@ -58,6 +71,7 @@ class HardwareStageResult:
     test_accuracy: float | None
     parameter_count: int
     memristor_count: int | None
+    gilbert_multiplier_count: int | None
     set_pulses: int
     reset_pulses: int
     current_to_voltage_gains: list[float] | None
@@ -125,6 +139,33 @@ def _train_software_model(dataset: SupervisedDataset, config: HardwareTrainConfi
     return model, last_loss
 
 
+def _make_forward_config(args: argparse.Namespace, k: float) -> PhysicalForwardConfig:
+    product_gain = args.gilbert_product_gain
+    if product_gain is None and (args.complete_physical or args.use_gilbert_multiplier):
+        product_gain = 1.0 / k
+    if product_gain is None:
+        product_gain = 1.0
+    return PhysicalForwardConfig(
+        use_gilbert_multiplier=args.complete_physical or args.use_gilbert_multiplier,
+        gilbert_parameters=GilbertMultiplierParameters(
+            input_linear_range=args.gilbert_input_linear_range,
+            product_gain=product_gain,
+        ),
+        rram_iv_nonlinearity=args.rram_iv_nonlinearity,
+        adc_clip_voltage=args.adc_clip_voltage,
+    )
+
+
+def _make_dynamic_pulse_config(args: argparse.Namespace) -> DynamicPulseConfig:
+    return DynamicPulseConfig(
+        enabled=args.complete_physical or args.dynamic_memdiode_pulses,
+        set_voltage=args.dynamic_set_voltage,
+        reset_voltage=args.dynamic_reset_voltage,
+        pulse_width_s=args.dynamic_pulse_width_s,
+        memdiode_parameters=DynamicMemdiodeParameters(),
+    )
+
+
 def _pulse_train(
     model: PhysicalOddPolynomialKAN,
     dataset: SupervisedDataset,
@@ -141,6 +182,12 @@ def _pulse_train(
             gradient_deadzone_quantile=config.gradient_deadzone_quantile,
             bias_learning_rate=config.bias_learning_rate,
             conductance_learning_rate=config.conductance_learning_rate,
+            dynamic_pulse_config=DynamicPulseConfig(
+                enabled=config.complete_physical,
+                set_voltage=config.dynamic_set_voltage,
+                reset_voltage=config.dynamic_reset_voltage,
+                pulse_width_s=config.dynamic_pulse_width_s,
+            ),
         ),
     )
     last_loss = 0.0
@@ -168,9 +215,11 @@ def _stage_result(
     test_loss, test_mse, test_accuracy, predictions = _evaluate(model, dataset, loss_fn, split="test")
     if isinstance(model, PhysicalOddPolynomialKAN):
         memristor_count: int | None = model.count_memristors()
+        gilbert_count: int | None = model.count_gilbert_multipliers()
         gains: list[float] | None = [float(layer.current_to_voltage_gain.item()) for layer in model.layers]
     else:
         memristor_count = None
+        gilbert_count = None
         gains = None
     result = HardwareStageResult(
         dataset=dataset.name,
@@ -183,6 +232,7 @@ def _stage_result(
         test_accuracy=test_accuracy,
         parameter_count=count_parameters(model),
         memristor_count=memristor_count,
+        gilbert_multiplier_count=gilbert_count,
         set_pulses=set_pulses,
         reset_pulses=reset_pulses,
         current_to_voltage_gains=gains,
@@ -237,12 +287,33 @@ def run_dataset(dataset_name: str, k: float, args: argparse.Namespace) -> list[H
         max_pulses_per_update=args.max_pulses_per_update,
         gradient_deadzone_quantile=args.gradient_deadzone_quantile,
         seed=args.seed,
+        complete_physical=args.complete_physical,
+        rram_iv_nonlinearity=args.rram_iv_nonlinearity,
+        variability_std=args.variability_std,
+        stuck_lrs_probability=args.stuck_lrs_probability,
+        stuck_hrs_probability=args.stuck_hrs_probability,
+        gilbert_product_gain=args.gilbert_product_gain,
+        gilbert_input_linear_range=args.gilbert_input_linear_range,
+        dynamic_set_voltage=args.dynamic_set_voltage,
+        dynamic_reset_voltage=args.dynamic_reset_voltage,
+        dynamic_pulse_width_s=args.dynamic_pulse_width_s,
     )
-    mapper = RRAMWeightMapper(r_lrs=args.r_lrs, r_hrs=args.r_hrs, n_states=args.n_states, seed=args.seed)
+    mapper = RRAMWeightMapper(
+        r_lrs=args.r_lrs,
+        r_hrs=args.r_hrs,
+        n_states=args.n_states,
+        variability_std=args.variability_std,
+        stuck_lrs_probability=args.stuck_lrs_probability,
+        stuck_hrs_probability=args.stuck_hrs_probability,
+        seed=args.seed,
+    )
+    forward_config = _make_forward_config(args, k)
+    dynamic_pulse_config = _make_dynamic_pulse_config(args)
     output_dir = Path(args.output_dir)
     results: list[HardwareStageResult] = []
+    mode_tag = "complete_physical" if args.complete_physical else "mapped"
+    checkpoint_tag = f"{dataset_name}_k{k:g}_{mode_tag}"
 
-    checkpoint_tag = f"{dataset_name}_k{k:g}"
     software_model, pretrain_loss = _train_software_model(dataset, config)
     pretrain_result, _ = _stage_result(dataset, "ideal_pretrain", software_model, config, pretrain_loss)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -258,22 +329,26 @@ def run_dataset(dataset_name: str, k: float, args: argparse.Namespace) -> list[H
         mapper=mapper,
         input_scale_v=k,
         current_to_voltage_gain=args.current_to_voltage_gain,
+        forward_config=forward_config,
+        dynamic_pulse_config=dynamic_pulse_config,
     )
     mapped_train_loss, _, _, _ = _evaluate(physical_model, dataset, _loss_for_task(dataset.task), split="train")
-    mapped_result, mapped_predictions = _stage_result(dataset, "mapped_quantized", physical_model, config, mapped_train_loss)
+    mapped_stage = "complete_physical_mapped" if args.complete_physical else "mapped_quantized"
+    mapped_result, mapped_predictions = _stage_result(dataset, mapped_stage, physical_model, config, mapped_train_loss)
     results.append(mapped_result)
     print(json.dumps(asdict(mapped_result), indent=2))
     _plot_predictions(
         dataset,
         mapped_predictions,
-        output_dir / f"{checkpoint_tag}_mapped_quantized.png",
-        f"{dataset_name} / mapped quantized / k={k:g}",
+        output_dir / f"{checkpoint_tag}_{mapped_stage}.png",
+        f"{dataset_name} / {mapped_stage} / k={k:g}",
     )
 
     pulse_loss, set_pulses, reset_pulses = _pulse_train(physical_model, dataset, config)
+    pulse_stage = "complete_physical_pulse_trained" if args.complete_physical else "pulse_trained"
     pulse_result, pulse_predictions = _stage_result(
         dataset,
-        "pulse_trained",
+        pulse_stage,
         physical_model,
         config,
         pulse_loss,
@@ -285,12 +360,12 @@ def run_dataset(dataset_name: str, k: float, args: argparse.Namespace) -> list[H
     _plot_predictions(
         dataset,
         pulse_predictions,
-        output_dir / f"{checkpoint_tag}_pulse_trained.png",
-        f"{dataset_name} / pulse trained / k={k:g}",
+        output_dir / f"{checkpoint_tag}_{pulse_stage}.png",
+        f"{dataset_name} / {pulse_stage} / k={k:g}",
     )
     torch.save(
         {"model_state": physical_model.state_dict(), "result": asdict(pulse_result)},
-        output_dir / f"{checkpoint_tag}_pulse_trained.pt",
+        output_dir / f"{checkpoint_tag}_{pulse_stage}.pt",
     )
     return results
 
@@ -327,6 +402,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--r-lrs", type=float, default=1e4)
     parser.add_argument("--r-hrs", type=float, default=1e6)
     parser.add_argument("--current-to-voltage-gain", type=float, default=None)
+    parser.add_argument("--complete-physical", action="store_true")
+    parser.add_argument("--use-gilbert-multiplier", action="store_true")
+    parser.add_argument("--gilbert-product-gain", type=float, default=None)
+    parser.add_argument("--gilbert-input-linear-range", type=float, default=0.4)
+    parser.add_argument("--dynamic-memdiode-pulses", action="store_true")
+    parser.add_argument("--dynamic-set-voltage", type=float, default=1.8)
+    parser.add_argument("--dynamic-reset-voltage", type=float, default=-1.0)
+    parser.add_argument("--dynamic-pulse-width-s", type=float, default=1e-9)
+    parser.add_argument("--rram-iv-nonlinearity", type=float, default=0.0)
+    parser.add_argument("--variability-std", type=float, default=0.0)
+    parser.add_argument("--stuck-lrs-probability", type=float, default=0.0)
+    parser.add_argument("--stuck-hrs-probability", type=float, default=0.0)
+    parser.add_argument("--adc-clip-voltage", type=float, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", default="outputs/hardware_training")
     return parser.parse_args()

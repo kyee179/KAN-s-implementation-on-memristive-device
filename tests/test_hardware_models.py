@@ -4,7 +4,15 @@ import torch
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplier
 from kan_memristor.hardware.memristor import DynamicMemdiode, RRAMWeightMapper
 from kan_memristor.hardware.odd_polynomial_edge import HardwareOddPolynomialEdge
-from kan_memristor.hardware.physical_kan import MemristivePulseOptimizer, PhysicalOddPolynomialKAN, PulseUpdateConfig
+from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplierParameters
+from kan_memristor.hardware.physical_kan import (
+    DynamicPulseConfig,
+    MemristivePulseOptimizer,
+    PhysicalForwardConfig,
+    PhysicalOddPolynomialKAN,
+    PhysicalOddPolynomialKANLayer,
+    PulseUpdateConfig,
+)
 from kan_memristor.models import OddPolynomialKAN, OddPolynomialKANLayer
 
 
@@ -101,4 +109,59 @@ def test_memristive_pulse_optimizer_updates_conductance_states():
     assert not torch.equal(before, after) or not torch.equal(physical.layers[0].g_neg.detach(), before)
     assert torch.all(after >= mapper.g_min)
     assert torch.all(after <= mapper.g_max)
+
+
+
+def test_physical_layer_uses_gilbert_multiplier_for_power_rows():
+    ideal_layer = PhysicalOddPolynomialKANLayer(1, 1)
+    gilbert_layer = PhysicalOddPolynomialKANLayer(
+        1,
+        1,
+        forward_config=PhysicalForwardConfig(
+            use_gilbert_multiplier=True,
+            gilbert_parameters=GilbertMultiplierParameters(product_gain=0.5, input_linear_range=0.2),
+        ),
+    )
+    x = torch.tensor([[0.8]])
+    ideal_rows = ideal_layer.voltage_rows(x)
+    gilbert_rows = gilbert_layer.voltage_rows(x)
+    assert ideal_rows.shape == gilbert_rows.shape == (1, 1, 3)
+    assert torch.isclose(ideal_rows[..., 0], gilbert_rows[..., 0]).all()
+    assert not torch.isclose(ideal_rows[..., 1], gilbert_rows[..., 1]).all()
+
+
+def test_dynamic_memdiode_pulse_optimizer_updates_state_and_conductance():
+    software = OddPolynomialKAN([1, 1])
+    mapper = RRAMWeightMapper(n_states=32, r_lrs=1e4, r_hrs=1e6)
+    physical = PhysicalOddPolynomialKAN.from_software_model(
+        software,
+        mapper=mapper,
+        input_scale_v=0.2,
+        dynamic_pulse_config=DynamicPulseConfig(enabled=True, set_voltage=1.8, reset_voltage=-1.0, pulse_width_s=1e-9),
+    )
+    optimizer = MemristivePulseOptimizer(
+        physical,
+        PulseUpdateConfig(
+            max_pulses_per_update=2,
+            gradient_deadzone_quantile=0.0,
+            conductance_learning_rate=1e-5,
+            dynamic_pulse_config=DynamicPulseConfig(enabled=True, set_voltage=1.8, reset_voltage=-1.0, pulse_width_s=1e-9),
+            quantize_after_update=False,
+        ),
+    )
+    x = torch.tensor([[-0.5], [0.5]])
+    target = torch.tensor([[0.5], [-0.5]])
+    before_state = torch.cat([physical.layers[0].state_pos.flatten(), physical.layers[0].state_neg.flatten()]).detach().clone()
+    before_g = torch.cat([physical.layers[0].g_pos.flatten(), physical.layers[0].g_neg.flatten()]).detach().clone()
+    loss = torch.nn.functional.mse_loss(physical(x), target)
+    loss.backward()
+    pulse_counts = optimizer.step()
+    after_state = torch.cat([physical.layers[0].state_pos.flatten(), physical.layers[0].state_neg.flatten()]).detach()
+    after_g = torch.cat([physical.layers[0].g_pos.flatten(), physical.layers[0].g_neg.flatten()]).detach()
+    assert pulse_counts["set_pulses"] + pulse_counts["reset_pulses"] > 0
+    assert not torch.equal(before_state, after_state)
+    assert not torch.equal(before_g, after_g)
+
+
+
 

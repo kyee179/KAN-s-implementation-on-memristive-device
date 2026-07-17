@@ -29,3 +29,7 @@ See `docs/hardware_physical_models.md`.
 The first trainable physical KAN is implemented as a memristive odd-polynomial KAN. It maps ideal KAN coefficients onto differential RRAM conductance pairs, connects layers with a fixed current-to-voltage scaling parameter `k`, and fine-tunes conductances with accumulated SET/RESET pulse updates guided by KAN gradients.
 
 See `docs/hardware_kan_training.md` and run `python -m kan_memristor.experiments.hardware_train`.
+
+## Complete Physical Simulation
+
+The stricter simulation path now uses Gilbert multiplier cascades for odd-power voltage rows and DynamicMemdiode state evolution for SET/RESET pulse programming. Initial results show classification remains feasible, while regression needs inter-layer voltage normalization and hardware-aware calibration. See `docs/complete_physical_simulation.md`.
