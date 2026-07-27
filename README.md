@@ -81,3 +81,13 @@ python -m kan_memristor.experiments.hardware_train --complete-physical
 ```
 
 For results and the remaining physical-system checklist, see `docs/complete_physical_simulation.md`.
+
+## Inter-layer Normalization
+
+Run normalized complete physical experiments with:
+
+```powershell
+python -m kan_memristor.experiments.hardware_train --complete-physical --inter-layer-normalization tanh --normalization-gain 2.0
+```
+
+For results, see `docs/inter_layer_normalization_experiment.md`.

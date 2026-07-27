@@ -87,3 +87,7 @@ These are the main items still missing or only approximated.
 ## Recommended next step
 
 Add a physical normalization/calibration layer between KAN layers, then train with the complete physical forward path before mapping to pulses. This should answer whether the odd-polynomial KAN is fundamentally feasible in hardware, rather than only whether ideal coefficients survive a nonideal physical transfer function.
+
+## Inter-layer normalization follow-up
+
+A hardware-compatible `tanh(gamma*y)` normalization block was added between hidden KAN layers. With gain `2.0`, the complete physical mapped regression MSE improved from `1.7043` to `0.4112`, and yin-yang classification improved from `92.68%` to `94.34%`. This confirms that inter-layer signal scaling is a major bottleneck. See `docs/inter_layer_normalization_experiment.md`.

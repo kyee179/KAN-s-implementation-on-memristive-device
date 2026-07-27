@@ -1,10 +1,25 @@
-"""Small transparent KAN and MLP models for baseline experiments."""
+﻿"""Small transparent KAN and MLP models for baseline experiments."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
 
+
+
+
+def apply_inter_layer_normalization(x: torch.Tensor, mode: str = "none", gain: float = 1.0) -> torch.Tensor:
+    """Apply a hardware-compatible bounded signal transform between layers."""
+
+    if gain <= 0.0:
+        raise ValueError("normalization gain must be positive")
+    if mode == "none":
+        return x
+    if mode == "tanh":
+        return torch.tanh(gain * x)
+    if mode == "clip":
+        return torch.clamp(gain * x, -1.0, 1.0)
+    raise ValueError(f"Unknown inter-layer normalization mode: {mode}")
 
 class BSplineKANLayer(nn.Module):
     """KAN layer with one learned univariate B-spline on every edge."""
@@ -157,17 +172,36 @@ class OddPolynomialKANLayer(nn.Module):
 class OddPolynomialKAN(nn.Module):
     """A compact KAN using odd-polynomial edge functions only."""
 
-    def __init__(self, widths: list[int], powers: tuple[int, ...] = (1, 3, 5)) -> None:
+    def __init__(
+        self,
+        widths: list[int],
+        powers: tuple[int, ...] = (1, 3, 5),
+        inter_layer_normalization: str = "none",
+        normalization_gain: float = 1.0,
+    ) -> None:
         super().__init__()
         if len(widths) < 2:
             raise ValueError("widths must contain at least input and output sizes")
         self.layers = nn.ModuleList(
             [OddPolynomialKANLayer(widths[i], widths[i + 1], powers=powers) for i in range(len(widths) - 1)]
         )
+        apply_inter_layer_normalization(
+            torch.zeros(1),
+            mode=inter_layer_normalization,
+            gain=normalization_gain,
+        )
+        self.inter_layer_normalization = inter_layer_normalization
+        self.normalization_gain = normalization_gain
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
+        for index, layer in enumerate(self.layers):
             x = layer(x)
+            if index < len(self.layers) - 1:
+                x = apply_inter_layer_normalization(
+                    x,
+                    mode=self.inter_layer_normalization,
+                    gain=self.normalization_gain,
+                )
         return x
 
 
@@ -189,3 +223,5 @@ def make_mlp(widths: list[int]) -> nn.Sequential:
 
 def count_parameters(model: nn.Module) -> int:
     return sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+
+

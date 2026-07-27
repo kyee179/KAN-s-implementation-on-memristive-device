@@ -57,6 +57,8 @@ class HardwareTrainConfig:
     dynamic_set_voltage: float
     dynamic_reset_voltage: float
     dynamic_pulse_width_s: float
+    inter_layer_normalization: str
+    normalization_gain: float
 
 
 @dataclass(frozen=True)
@@ -121,7 +123,11 @@ def _evaluate(
 
 def _train_software_model(dataset: SupervisedDataset, config: HardwareTrainConfig) -> tuple[OddPolynomialKAN, float]:
     _set_seed(config.seed)
-    model = OddPolynomialKAN(config.widths)
+    model = OddPolynomialKAN(
+        config.widths,
+        inter_layer_normalization=config.inter_layer_normalization,
+        normalization_gain=config.normalization_gain,
+    )
     loss_fn = _loss_for_task(dataset.task)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.pretrain_learning_rate, weight_decay=1e-4)
     train_data = TensorDataset(torch.from_numpy(dataset.x_train), torch.from_numpy(dataset.y_train))
@@ -153,6 +159,8 @@ def _make_forward_config(args: argparse.Namespace, k: float) -> PhysicalForwardC
         ),
         rram_iv_nonlinearity=args.rram_iv_nonlinearity,
         adc_clip_voltage=args.adc_clip_voltage,
+        inter_layer_normalization=args.inter_layer_normalization,
+        normalization_gain=args.normalization_gain,
     )
 
 
@@ -297,6 +305,8 @@ def run_dataset(dataset_name: str, k: float, args: argparse.Namespace) -> list[H
         dynamic_set_voltage=args.dynamic_set_voltage,
         dynamic_reset_voltage=args.dynamic_reset_voltage,
         dynamic_pulse_width_s=args.dynamic_pulse_width_s,
+        inter_layer_normalization=args.inter_layer_normalization,
+        normalization_gain=args.normalization_gain,
     )
     mapper = RRAMWeightMapper(
         r_lrs=args.r_lrs,
@@ -415,6 +425,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stuck-lrs-probability", type=float, default=0.0)
     parser.add_argument("--stuck-hrs-probability", type=float, default=0.0)
     parser.add_argument("--adc-clip-voltage", type=float, default=None)
+    parser.add_argument("--inter-layer-normalization", choices=["none", "tanh", "clip"], default="none")
+    parser.add_argument("--normalization-gain", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", default="outputs/hardware_training")
     return parser.parse_args()
@@ -426,5 +438,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 

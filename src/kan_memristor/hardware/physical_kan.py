@@ -22,7 +22,7 @@ from torch import nn
 
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplierParameters
 from kan_memristor.hardware.memristor import DynamicMemdiode, DynamicMemdiodeParameters, RRAMWeightMapper
-from kan_memristor.models import OddPolynomialKAN, OddPolynomialKANLayer
+from kan_memristor.models import OddPolynomialKAN, OddPolynomialKANLayer, apply_inter_layer_normalization
 
 
 @dataclass(frozen=True)
@@ -50,12 +50,19 @@ class PhysicalForwardConfig:
     gilbert_parameters: GilbertMultiplierParameters = GilbertMultiplierParameters()
     rram_iv_nonlinearity: float = 0.0
     adc_clip_voltage: float | None = None
+    inter_layer_normalization: str = "none"
+    normalization_gain: float = 1.0
 
     def __post_init__(self) -> None:
         if self.rram_iv_nonlinearity < 0.0:
             raise ValueError("rram_iv_nonlinearity must be non-negative")
         if self.adc_clip_voltage is not None and self.adc_clip_voltage <= 0.0:
             raise ValueError("adc_clip_voltage must be positive")
+        apply_inter_layer_normalization(
+            torch.zeros(1),
+            mode=self.inter_layer_normalization,
+            gain=self.normalization_gain,
+        )
 
 
 @dataclass(frozen=True)
@@ -314,8 +321,14 @@ class PhysicalOddPolynomialKAN(nn.Module):
         return cls(layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
+        for index, layer in enumerate(self.layers):
             x = layer(x)
+            if index < len(self.layers) - 1:
+                x = apply_inter_layer_normalization(
+                    x,
+                    mode=layer.forward_config.inter_layer_normalization,
+                    gain=layer.forward_config.normalization_gain,
+                )
         return x
 
     def conductance_parameters(self) -> list[nn.Parameter]:
@@ -426,3 +439,5 @@ class MemristivePulseOptimizer:
         self.total_reset_pulses += step_reset
         self.zero_grad()
         return {"set_pulses": step_set, "reset_pulses": step_reset}
+
+

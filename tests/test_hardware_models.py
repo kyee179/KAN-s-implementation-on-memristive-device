@@ -7,6 +7,7 @@ from kan_memristor.hardware.odd_polynomial_edge import HardwareOddPolynomialEdge
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplierParameters
 from kan_memristor.hardware.physical_kan import (
     DynamicPulseConfig,
+    HardwareKANScaling,
     MemristivePulseOptimizer,
     PhysicalForwardConfig,
     PhysicalOddPolynomialKAN,
@@ -165,3 +166,27 @@ def test_dynamic_memdiode_pulse_optimizer_updates_state_and_conductance():
 
 
 
+
+
+def test_physical_kan_inter_layer_tanh_changes_second_layer_drive():
+    mapper = RRAMWeightMapper(n_states=16, r_lrs=1e4, r_hrs=1e6)
+    scaling = HardwareKANScaling(input_scale_v=0.2, current_to_voltage_gain=1e6)
+    layer1 = PhysicalOddPolynomialKANLayer(1, 1, mapper=mapper, scaling=scaling)
+    layer2 = PhysicalOddPolynomialKANLayer(1, 1, mapper=mapper, scaling=scaling)
+    for layer in (layer1, layer2):
+        with torch.no_grad():
+            layer.g_pos.fill_(mapper.g_max)
+            layer.g_neg.fill_(mapper.g_min)
+    no_norm = PhysicalOddPolynomialKAN([layer1, layer2])
+
+    norm_config = PhysicalForwardConfig(inter_layer_normalization="tanh", normalization_gain=1.0)
+    norm_layer1 = PhysicalOddPolynomialKANLayer(1, 1, mapper=mapper, scaling=scaling, forward_config=norm_config)
+    norm_layer2 = PhysicalOddPolynomialKANLayer(1, 1, mapper=mapper, scaling=scaling, forward_config=norm_config)
+    for layer in (norm_layer1, norm_layer2):
+        with torch.no_grad():
+            layer.g_pos.fill_(mapper.g_max)
+            layer.g_neg.fill_(mapper.g_min)
+    with_norm = PhysicalOddPolynomialKAN([norm_layer1, norm_layer2])
+
+    x = torch.ones(1, 1)
+    assert torch.abs(no_norm(x) - with_norm(x)).item() > 1.0

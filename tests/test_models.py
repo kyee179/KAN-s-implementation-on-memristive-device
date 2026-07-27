@@ -1,4 +1,4 @@
-import torch
+﻿import torch
 
 from kan_memristor.models import (
     BSplineKAN,
@@ -41,3 +41,19 @@ def test_mlp_forward_shape():
     model = make_mlp([2, 8, 1])
     output = model(torch.zeros(3, 2))
     assert output.shape == (3, 1)
+
+def test_odd_polynomial_kan_inter_layer_tanh_bounds_hidden_signal():
+    no_norm = OddPolynomialKAN([1, 1, 1])
+    tanh_norm = OddPolynomialKAN([1, 1, 1], inter_layer_normalization="tanh", normalization_gain=1.0)
+    for model in (no_norm, tanh_norm):
+        with torch.no_grad():
+            model.layers[0].coefficients.zero_()
+            model.layers[0].coefficients[..., 0] = 10.0
+            model.layers[0].bias.zero_()
+            model.layers[1].coefficients.zero_()
+            model.layers[1].coefficients[..., 0] = 1.0
+            model.layers[1].bias.zero_()
+    x = torch.ones(1, 1)
+    assert no_norm(x).item() > 9.0
+    assert tanh_norm(x).item() <= 1.0
+
