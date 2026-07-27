@@ -91,3 +91,13 @@ python -m kan_memristor.experiments.hardware_train --complete-physical --inter-l
 ```
 
 For results, see `docs/inter_layer_normalization_experiment.md`.
+
+## Energy Estimation
+
+Estimate physical KAN inference/programming energy and compare it with a digital MLP baseline:
+
+```powershell
+python -m kan_memristor.experiments.energy_estimation
+```
+
+For assumptions and results, see `docs/energy_estimation.md`.
