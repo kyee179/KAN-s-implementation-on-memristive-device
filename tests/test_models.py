@@ -1,4 +1,4 @@
-﻿import torch
+import torch
 
 from kan_memristor.models import (
     BSplineKAN,
@@ -57,3 +57,12 @@ def test_odd_polynomial_kan_inter_layer_tanh_bounds_hidden_signal():
     assert no_norm(x).item() > 9.0
     assert tanh_norm(x).item() <= 1.0
 
+
+
+def test_polynomial_layer_accepts_even_powers_and_loses_odd_symmetry():
+    layer = OddPolynomialKANLayer(1, 1, powers=(1, 2, 3))
+    x = torch.tensor([[0.5]])
+    basis = layer._basis(x)
+    assert basis.shape == (1, 1, 3)
+    assert torch.allclose(basis[..., 1], torch.tensor([[0.25]]))
+    assert not torch.allclose(layer._basis(-x), -basis)

@@ -1,4 +1,4 @@
-﻿import numpy as np
+import numpy as np
 import torch
 
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplier
@@ -190,3 +190,18 @@ def test_physical_kan_inter_layer_tanh_changes_second_layer_drive():
 
     x = torch.ones(1, 1)
     assert torch.abs(no_norm(x) - with_norm(x)).item() > 1.0
+
+
+def test_physical_layer_generates_even_power_voltage_rows():
+    layer = PhysicalOddPolynomialKANLayer(
+        1,
+        1,
+        powers=(1, 2, 3, 4),
+        forward_config=PhysicalForwardConfig(use_gilbert_multiplier=False),
+    )
+    rows = layer.voltage_rows(torch.tensor([[-0.5]]))
+    assert rows.shape == (1, 1, 4)
+    assert rows[..., 0].item() < 0.0
+    assert rows[..., 1].item() > 0.0
+    assert rows[..., 2].item() < 0.0
+    assert rows[..., 3].item() > 0.0

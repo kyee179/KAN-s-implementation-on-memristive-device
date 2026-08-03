@@ -1,4 +1,4 @@
-﻿# KAN's Implementation on Memristive Devices
+# KAN's Implementation on Memristive Devices
 
 This repository contains experiments and implementation work for applying Kolmogorov-Arnold Networks (KANs) to memristive hardware.
 
@@ -101,3 +101,13 @@ python -m kan_memristor.experiments.energy_estimation
 ```
 
 For assumptions and results, see `docs/energy_estimation.md`.
+
+## Expanded Polynomial Edges
+
+Test full polynomial edge functions, including even powers from `x` to `x^7`:
+
+```powershell
+python -m kan_memristor.experiments.hardware_train --complete-physical --powers 1 2 3 4 5 6 7
+```
+
+For the hardware interpretation and results, see `docs/full_polynomial_edge_experiment.md`.

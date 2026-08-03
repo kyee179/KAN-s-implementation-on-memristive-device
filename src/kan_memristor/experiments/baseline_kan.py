@@ -27,6 +27,7 @@ class TrainConfig:
     widths: list[int]
     num_basis: int
     spline_degree: int
+    powers: tuple[int, ...]
     epochs: int
     batch_size: int
     learning_rate: float
@@ -55,7 +56,7 @@ def _make_model(config: TrainConfig) -> nn.Module:
     if config.model == "kan":
         return BSplineKAN(config.widths, num_basis=config.num_basis, degree=config.spline_degree)
     if config.model == "odd_poly_kan":
-        return OddPolynomialKAN(config.widths)
+        return OddPolynomialKAN(config.widths, powers=config.powers)
     if config.model == "mlp":
         return make_mlp(config.widths)
     raise ValueError(f"Unknown model: {config.model}")
@@ -175,6 +176,7 @@ def run_suite(args: argparse.Namespace) -> list[ExperimentResult]:
                 widths=default_widths(dataset_name, model_name),
                 num_basis=args.num_basis,
                 spline_degree=args.spline_degree,
+                powers=tuple(args.powers),
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 learning_rate=args.learning_rate,
@@ -203,6 +205,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=3e-3)
     parser.add_argument("--num-basis", type=int, default=13)
     parser.add_argument("--spline-degree", type=int, default=3)
+    parser.add_argument("--powers", nargs="+", type=int, default=[1, 3, 5])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", default="outputs/baseline_tests")
     return parser.parse_args()

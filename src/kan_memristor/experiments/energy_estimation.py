@@ -1,4 +1,4 @@
-﻿"""Estimate physical KAN energy and compare it with a digital MLP baseline."""
+"""Estimate physical KAN energy and compare it with a digital MLP baseline."""
 
 from __future__ import annotations
 
@@ -48,6 +48,7 @@ def _config_for_dataset(dataset_name: str, args: argparse.Namespace) -> Hardware
     return HardwareTrainConfig(
         dataset=dataset_name,
         widths=default_widths(dataset_name, "odd_poly_kan"),
+        powers=tuple(args.powers),
         k=args.k,
         n_states=args.n_states,
         r_lrs=args.r_lrs,
@@ -162,6 +163,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--datasets", nargs="+", default=["complicated_function", "taglietti_yinyang"])
     parser.add_argument("--k", type=float, default=0.2)
+    parser.add_argument("--powers", nargs="+", type=int, default=[1, 3, 5])
     parser.add_argument("--n-train", type=int, default=2048)
     parser.add_argument("--n-test", type=int, default=2048)
     parser.add_argument("--energy-samples", type=int, default=2048)
@@ -205,4 +207,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

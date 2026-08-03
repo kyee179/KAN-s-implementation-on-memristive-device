@@ -1,4 +1,4 @@
-﻿"""Small transparent KAN and MLP models for baseline experiments."""
+"""Small transparent KAN and MLP models for baseline experiments."""
 
 from __future__ import annotations
 
@@ -131,7 +131,7 @@ class BSplineKAN(nn.Module):
 
 
 class OddPolynomialKANLayer(nn.Module):
-    """KAN layer whose edge functions are c1*x + c3*x^3 + c5*x^5."""
+    """KAN layer whose edge functions are learned polynomial sums."""
 
     def __init__(
         self,
@@ -142,8 +142,8 @@ class OddPolynomialKANLayer(nn.Module):
         super().__init__()
         if not powers:
             raise ValueError("powers must not be empty")
-        if any(power <= 0 or power % 2 == 0 for power in powers):
-            raise ValueError("powers must be positive odd integers")
+        if any(power <= 0 for power in powers):
+            raise ValueError("powers must be positive integers")
         self.in_features = in_features
         self.out_features = out_features
         self.register_buffer("powers", torch.tensor(powers, dtype=torch.float32))
@@ -170,7 +170,7 @@ class OddPolynomialKANLayer(nn.Module):
 
 
 class OddPolynomialKAN(nn.Module):
-    """A compact KAN using odd-polynomial edge functions only."""
+    """A compact KAN using polynomial edge functions."""
 
     def __init__(
         self,
@@ -223,5 +223,3 @@ def make_mlp(widths: list[int]) -> nn.Sequential:
 
 def count_parameters(model: nn.Module) -> int:
     return sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
-
-

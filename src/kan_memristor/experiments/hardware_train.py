@@ -1,4 +1,4 @@
-﻿"""Train and evaluate memristive odd-polynomial KAN variants."""
+"""Train and evaluate memristive odd-polynomial KAN variants."""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ from kan_memristor.models import OddPolynomialKAN, count_parameters
 class HardwareTrainConfig:
     dataset: str
     widths: list[int]
+    powers: tuple[int, ...]
     k: float
     n_states: int
     r_lrs: float
@@ -125,6 +126,7 @@ def _train_software_model(dataset: SupervisedDataset, config: HardwareTrainConfi
     _set_seed(config.seed)
     model = OddPolynomialKAN(
         config.widths,
+        powers=config.powers,
         inter_layer_normalization=config.inter_layer_normalization,
         normalization_gain=config.normalization_gain,
     )
@@ -282,6 +284,7 @@ def run_dataset(dataset_name: str, k: float, args: argparse.Namespace) -> list[H
     config = HardwareTrainConfig(
         dataset=dataset_name,
         widths=default_widths(dataset_name, "odd_poly_kan"),
+        powers=tuple(args.powers),
         k=k,
         n_states=args.n_states,
         r_lrs=args.r_lrs,
@@ -398,6 +401,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--datasets", nargs="+", default=["complicated_function", "taglietti_yinyang"])
     parser.add_argument("--k-values", nargs="+", type=float, default=[0.2])
+    parser.add_argument("--powers", nargs="+", type=int, default=[1, 3, 5])
     parser.add_argument("--n-train", type=int, default=2048)
     parser.add_argument("--n-test", type=int, default=2048)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -438,7 +442,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
