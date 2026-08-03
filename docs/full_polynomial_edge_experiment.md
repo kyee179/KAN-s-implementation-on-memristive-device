@@ -79,11 +79,13 @@ Compared with the normalized odd-power result, the full polynomial basis is much
 | Dataset | Edge powers | Ideal software result | Complete physical mapped result | Memristors | Gilbert multipliers |
 | --- | --- | ---: | ---: | ---: | ---: |
 | Complicated function | `1,3,5` | MSE `0.07749` | MSE `0.41117` | `1824` | `204` |
+| Complicated function | `1..5` | MSE `0.02506` | MSE `0.47372` | `3040` | `340` |
 | Complicated function | `1..7` | MSE `0.01065` | MSE `0.43608` | `4256` | `714` |
 | Taglietti yin-yang | `1,3,5` | Accuracy `95.61%` | Accuracy `94.34%` | `216` | `84` |
+| Taglietti yin-yang | `1..5` | Accuracy `95.80%` | Accuracy `94.78%` | `360` | `140` |
 | Taglietti yin-yang | `1..7` | Accuracy `95.85%` | Accuracy `94.68%` | `504` | `294` |
 
-The classification task benefits slightly after physical mapping, from `94.34%` to `94.68%`. The regression task does not: the physical MSE worsens from `0.41117` to `0.43608`, despite the ideal software pretrain improving from `0.07749` to `0.01065`.
+The classification task benefits slightly after physical mapping. The best tested result is now the `1..5` basis, which reaches `94.78%` compared with `94.34%` for odd-only and `94.68%` for `1..7`. The regression task does not benefit after physical mapping: `1..5` worsens to MSE `0.47372`, and `1..7` worsens to MSE `0.43608`, even though both improve the ideal software pretrain.
 
 ## Energy Impact
 
@@ -91,10 +93,12 @@ The expanded polynomial KAN remains lower-energy than the digital MLP estimate, 
 
 | Dataset | Expanded KAN energy/sample | Digital MLP energy/sample | KAN / MLP |
 | --- | ---: | ---: | ---: |
-| Complicated function | `31.57 pJ` | `19.72 nJ` | `0.160%` |
-| Taglietti yin-yang | `12.96 pJ` | `19.72 nJ` | `0.0657%` |
+| Complicated function, `1..5` | `15.11 pJ` | `19.72 nJ` | `0.0766%` |
+| Complicated function, `1..7` | `31.57 pJ` | `19.72 nJ` | `0.160%` |
+| Taglietti yin-yang, `1..5` | `6.19 pJ` | `19.72 nJ` | `0.0314%` |
+| Taglietti yin-yang, `1..7` | `12.96 pJ` | `19.72 nJ` | `0.0657%` |
 
-For comparison, the odd-power KAN previously used about `9.10 pJ/sample` on the complicated function and `3.72 pJ/sample` on yin-yang. So the expanded basis costs about `3.5x` more inference energy, mostly because the Gilbert multiplier count rises from `204` to `714` and from `84` to `294`.
+For comparison, the odd-power KAN previously used about `9.10 pJ/sample` on the complicated function and `3.72 pJ/sample` on yin-yang. The `1..5` basis costs about `1.66x` more than odd-only, while the `1..7` basis costs about `3.5x` more. The increase is mostly because the Gilbert multiplier count rises from `204` to `340` to `714` for the complicated function, and from `84` to `140` to `294` for yin-yang.
 
 ## Interpretation
 
@@ -105,4 +109,4 @@ Even powers can be solved physically with the existing differential memristor re
 - Even-power rows create nonnegative voltage/current components, increasing common-mode current.
 - The richer software model can overuse high-order coefficients that are fragile after conductance quantization.
 
-The current result supports a cautious conclusion: full polynomial edges are useful as a software upper bound and may help classification slightly, but they are not automatically better for the complete physical KAN. A good next experiment is a hybrid basis such as `(1, 2, 3, 5)` or `(1, 2, 3, 4, 5)`, combined with coefficient regularization that penalizes high powers. That would keep the asymmetric benefit of even powers while reducing multiplier cost and quantization sensitivity.
+The current result supports a cautious conclusion: full polynomial edges are useful as a software upper bound and may help classification slightly, but they are not automatically better for the complete physical KAN. Among the tested bases, `1..5` is the most attractive for classification because it gives the best mapped accuracy with much lower multiplier cost than `1..7`. For regression, odd-only remains better after physical mapping. A good next experiment is a smaller hybrid basis such as `(1, 2, 3, 5)`, combined with coefficient regularization that penalizes high powers. That would keep the asymmetric benefit of even powers while reducing multiplier cost and quantization sensitivity.
