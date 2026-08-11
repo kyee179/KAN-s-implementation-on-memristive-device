@@ -4,6 +4,12 @@ import torch
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplier
 from kan_memristor.hardware.memristor import DynamicMemdiode, RRAMWeightMapper
 from kan_memristor.hardware.odd_polynomial_edge import HardwareOddPolynomialEdge
+from kan_memristor.hardware.gbf_kan import (
+    GBFCellConfig,
+    GBFForwardConfig,
+    PhysicalGeneralizedBellKAN,
+    PhysicalGeneralizedBellKANLayer,
+)
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplierParameters
 from kan_memristor.hardware.physical_kan import (
     DynamicPulseConfig,
@@ -14,7 +20,7 @@ from kan_memristor.hardware.physical_kan import (
     PhysicalOddPolynomialKANLayer,
     PulseUpdateConfig,
 )
-from kan_memristor.models import OddPolynomialKAN, OddPolynomialKANLayer
+from kan_memristor.models import GeneralizedBellKAN, OddPolynomialKAN, OddPolynomialKANLayer
 
 
 def test_memdiode_current_increases_with_state():
@@ -205,3 +211,33 @@ def test_physical_layer_generates_even_power_voltage_rows():
     assert rows[..., 1].item() > 0.0
     assert rows[..., 2].item() < 0.0
     assert rows[..., 3].item() > 0.0
+
+
+def test_physical_gbf_layer_tia_generates_basis_row_voltages():
+    layer = PhysicalGeneralizedBellKANLayer(
+        1,
+        1,
+        num_basis=5,
+        cell_config=GBFCellConfig(output_current_peak_a=1e-6, tia_transresistance_ohm=2e5),
+    )
+    voltages = layer.tia_voltages(torch.tensor([[0.0]]))
+    assert voltages.shape == (1, 1, 5)
+    assert torch.isclose(voltages[..., 2], torch.tensor([[0.2]])).all()
+
+
+def test_physical_gbf_kan_maps_software_weights_closely():
+    software = GeneralizedBellKAN([1, 1], num_basis=5, basis_width=0.5)
+    with torch.no_grad():
+        software.layers[0].coefficients[:] = torch.tensor([[[0.10, -0.05, 0.20, 0.03, -0.02]]])
+        software.layers[0].bias.zero_()
+    physical = PhysicalGeneralizedBellKAN.from_software_model(
+        software,
+        mapper=RRAMWeightMapper(n_states=4096, r_lrs=1e4, r_hrs=1e6),
+        cell_config=GBFCellConfig(output_current_peak_a=1e-6, tia_transresistance_ohm=1e6),
+        forward_config=GBFForwardConfig(inter_layer_normalization="tanh"),
+    )
+    x = torch.linspace(-1.0, 1.0, 17).unsqueeze(1)
+    assert torch.max(torch.abs(software(x) - physical(x))).item() < 1e-3
+    assert physical.count_gbf_cells() == 5
+    assert physical.count_tias() == 5
+    assert physical.count_memristors() == 10

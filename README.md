@@ -111,3 +111,13 @@ python -m kan_memristor.experiments.hardware_train --complete-physical --powers 
 ```
 
 For the hardware interpretation and results, see `docs/full_polynomial_edge_experiment.md`.
+
+## Fixed GBF Basis KAN
+
+Train a KAN whose edge functions use fixed generalized bell-shaped basis cells, then map the trained weights to a GBF/TIA/RRAM-crossbar physical model:
+
+```powershell
+python -m kan_memristor.experiments.gbf_kan
+```
+
+For the architecture and first results, see `docs/gbf_kan_experiment.md`.

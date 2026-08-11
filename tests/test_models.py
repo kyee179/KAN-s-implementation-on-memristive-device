@@ -3,6 +3,8 @@ import torch
 from kan_memristor.models import (
     BSplineKAN,
     BSplineKANLayer,
+    GeneralizedBellKAN,
+    GeneralizedBellKANLayer,
     OddPolynomialKAN,
     OddPolynomialKANLayer,
     count_parameters,
@@ -66,3 +68,20 @@ def test_polynomial_layer_accepts_even_powers_and_loses_odd_symmetry():
     assert basis.shape == (1, 1, 3)
     assert torch.allclose(basis[..., 1], torch.tensor([[0.25]]))
     assert not torch.allclose(layer._basis(-x), -basis)
+
+
+def test_generalized_bell_basis_is_fixed_and_peak_centered():
+    layer = GeneralizedBellKANLayer(1, 2, num_basis=5, grid_range=(-1.0, 1.0), width=0.5, slope=2.0)
+    basis = layer._basis(torch.tensor([[0.0]]))
+    assert basis.shape == (1, 1, 5)
+    assert torch.isclose(basis[..., 2], torch.ones(1, 1)).all()
+    assert "centers" not in dict(layer.named_parameters())
+    assert "widths" not in dict(layer.named_parameters())
+    assert "slopes" not in dict(layer.named_parameters())
+
+
+def test_generalized_bell_kan_forward_shape():
+    model = GeneralizedBellKAN([2, 4, 1], num_basis=5)
+    output = model(torch.zeros(3, 2))
+    assert output.shape == (3, 1)
+    assert count_parameters(model) > 0

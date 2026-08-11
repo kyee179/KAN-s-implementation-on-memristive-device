@@ -205,6 +205,109 @@ class OddPolynomialKAN(nn.Module):
         return x
 
 
+class GeneralizedBellKANLayer(nn.Module):
+    """KAN layer with fixed generalized bell basis functions on every edge."""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        num_basis: int = 9,
+        grid_range: tuple[float, float] = (-1.0, 1.0),
+        width: float | None = None,
+        slope: float = 2.0,
+    ) -> None:
+        super().__init__()
+        if num_basis < 2:
+            raise ValueError("num_basis must be at least 2")
+        if grid_range[0] >= grid_range[1]:
+            raise ValueError("grid_range must be increasing")
+        if slope <= 0.0:
+            raise ValueError("slope must be positive")
+        if width is None:
+            width = 1.5 * (grid_range[1] - grid_range[0]) / (num_basis - 1)
+        if width <= 0.0:
+            raise ValueError("width must be positive")
+        self.in_features = in_features
+        self.out_features = out_features
+        self.num_basis = num_basis
+        self.grid_range = grid_range
+        self.width = float(width)
+        self.slope = float(slope)
+        centers = torch.linspace(grid_range[0], grid_range[1], num_basis, dtype=torch.float32)
+        self.register_buffer("centers", centers)
+        self.register_buffer("widths", torch.full((num_basis,), float(width), dtype=torch.float32))
+        self.register_buffer("slopes", torch.full((num_basis,), float(slope), dtype=torch.float32))
+        self.coefficients = nn.Parameter(torch.empty(out_features, in_features, num_basis))
+        self.bias = nn.Parameter(torch.zeros(out_features))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        nn.init.normal_(self.coefficients, mean=0.0, std=0.05)
+        nn.init.zeros_(self.bias)
+
+    def _basis(self, x: torch.Tensor) -> torch.Tensor:
+        centers = self.centers.to(dtype=x.dtype, device=x.device)
+        widths = self.widths.to(dtype=x.dtype, device=x.device)
+        slopes = self.slopes.to(dtype=x.dtype, device=x.device)
+        normalized = (x.unsqueeze(-1) - centers).abs() / widths.clamp_min(torch.finfo(x.dtype).eps)
+        return 1.0 / (1.0 + normalized.pow(2.0 * slopes))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        basis = self._basis(x)
+        edge_values = torch.einsum("bik,oik->bo", basis, self.coefficients)
+        return edge_values + self.bias
+
+
+class GeneralizedBellKAN(nn.Module):
+    """KAN whose edge functions are weighted sums of fixed GBF basis cells."""
+
+    def __init__(
+        self,
+        widths: list[int],
+        num_basis: int = 9,
+        grid_range: tuple[float, float] = (-1.0, 1.0),
+        basis_width: float | None = None,
+        slope: float = 2.0,
+        inter_layer_normalization: str = "tanh",
+        normalization_gain: float = 1.0,
+    ) -> None:
+        super().__init__()
+        if len(widths) < 2:
+            raise ValueError("widths must contain at least input and output sizes")
+        self.layers = nn.ModuleList(
+            [
+                GeneralizedBellKANLayer(
+                    widths[i],
+                    widths[i + 1],
+                    num_basis=num_basis,
+                    grid_range=grid_range,
+                    width=basis_width,
+                    slope=slope,
+                )
+                for i in range(len(widths) - 1)
+            ]
+        )
+        apply_inter_layer_normalization(
+            torch.zeros(1),
+            mode=inter_layer_normalization,
+            gain=normalization_gain,
+        )
+        self.inter_layer_normalization = inter_layer_normalization
+        self.normalization_gain = normalization_gain
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for index, layer in enumerate(self.layers):
+            x = layer(x)
+            if index < len(self.layers) - 1:
+                x = apply_inter_layer_normalization(
+                    x,
+                    mode=self.inter_layer_normalization,
+                    gain=self.normalization_gain,
+                )
+        return x
+
+
 # Backwards-compatible aliases for older local notebooks or scripts.
 KANLayer = BSplineKANLayer
 KAN = BSplineKAN
