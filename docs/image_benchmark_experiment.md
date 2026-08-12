@@ -82,11 +82,32 @@ This run uses 32 hidden nodes for MLP, Gilbert-KAN, and GBF-KAN. It is closer to
 | Fashion-MNIST | GBF-KAN | Software | `55.66%` | `228,714` | - |
 | Fashion-MNIST | GBF-KAN | Physical mapped | `55.27%` | `457,386` | `457,344` memristors, `7,344` GBF cells/TIAs |
 
+## Unrestricted-Capacity Pilot Results
+
+This run removes the node/parameter fairness constraint and asks which model works best under a reasonable CPU pilot budget. The tested settings were:
+
+- MLP: `[784, 256, 10]`, 25 epochs, plus a larger `[784, 512, 10]`, 30 epoch check.
+- Gilbert-KAN: `[784, 64, 10]`, 25 epochs, plus a larger `[784, 128, 10]`, 30 epoch check.
+- GBF-KAN: `[784, 64, 10]`, 25 epochs, plus a larger `[784, 128, 10]`, 30 epoch check.
+
+Best observed results:
+
+| Dataset | Best model | Stage | Accuracy | Trainable parameters | Physical resources |
+| --- | --- | --- | ---: | ---: | --- |
+| MNIST | MLP `[784,512,10]` | Software | `94.38%` | `407,050` | - |
+| MNIST | Gilbert-KAN `[784,128,10]` | Physical mapped | `87.79%` | `609,930` | `609,792` memristors, `5,472` Gilbert multipliers |
+| MNIST | GBF-KAN `[784,128,10]` | Physical mapped | `76.27%` | `1,829,514` | `1,829,376` memristors, `8,208` GBF cells/TIAs |
+| Fashion-MNIST | MLP `[784,256,10]` | Software | `84.42%` | `203,530` | - |
+| Fashion-MNIST | Gilbert-KAN `[784,128,10]` | Physical mapped | `81.98%` | `609,930` | `609,792` memristors, `5,472` Gilbert multipliers |
+| Fashion-MNIST | GBF-KAN `[784,64,10]` | Physical mapped | `79.44%` | `914,762` | `914,688` memristors, `7,632` GBF cells/TIAs |
+
+The unrestricted result is much more favorable to KANs than the matched-parameter pilot. Gilbert-KAN becomes close to the MLP on Fashion-MNIST and reasonably strong on MNIST. GBF-KAN also improves strongly with capacity, especially on MNIST, but it still uses many more memristive devices and remains behind the MLP and Gilbert-KAN for raw flattened images.
+
 ## Interpretation
 
 The MLP is the strongest raw-pixel baseline in these pilot runs. With the corrected same-node comparison, Gilbert-KAN becomes much stronger than in the matched-parameter run, reaching `66.80%` mapped accuracy on MNIST and `72.07%` on Fashion-MNIST. This confirms that hidden-node count matters for KAN-style comparisons. The physical mapping still loses some MNIST accuracy, consistent with earlier findings that the soft-clipped Gilbert multiplier changes the effective basis.
 
-The fixed GBF-KAN performs very well on low-dimensional continuous inputs, but it is weak on raw flattened images in this configuration. Same-node comparison helps Fashion-MNIST but not MNIST. This is probably because fixed membership functions over individual pixel intensities do not capture spatial structure, and for MNIST many pixels are near the background value. Each pixel is treated independently on KAN edges, so the model has no convolutional locality or learned feature extractor.
+The fixed GBF-KAN performs very well on low-dimensional continuous inputs, but it is weaker on raw flattened images. Same-node comparison helps Fashion-MNIST but not MNIST; unrestricted capacity helps both, but at a high device-count cost. This is probably because fixed membership functions over individual pixel intensities do not capture spatial structure, and for MNIST many pixels are near the background value. Each pixel is treated independently on KAN edges, so the model has no convolutional locality or learned feature extractor.
 
 This does not mean the GBF method is bad; it means the raw-pixel image setup is not the right showcase yet. Better next steps are:
 
@@ -95,4 +116,4 @@ This does not mean the GBF method is bad; it means the raw-pixel image setup is 
 - sweep GBF centers/widths for pixel distributions while still keeping them fixed during training;
 - train longer on larger subsets after the architecture is chosen.
 
-For the current report, the honest conclusion is: same-node comparison is the fairer KAN-style comparison, Gilbert-KAN is viable on raw Fashion-MNIST and moderately useful on MNIST, while fixed GBF-KAN still requires a feature-extraction stage or basis redesign for raw MNIST/Fashion-MNIST.
+For the current report, the honest conclusion is: same-node comparison is the fairer KAN-style comparison, and unrestricted capacity shows that both KAN variants can improve substantially. However, for raw MNIST/Fashion-MNIST the MLP remains the best observed model in this pilot. Gilbert-KAN is the stronger hardware KAN route for raw images, while fixed GBF-KAN likely needs a feature-extraction stage or basis redesign.
