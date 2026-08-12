@@ -26,6 +26,8 @@ from kan_memristor.hardware.physical_kan import DynamicPulseConfig, PhysicalOddP
 class InferenceEnergyBreakdown:
     rram_read_j_per_sample: float
     gilbert_j_per_sample: float
+    normalization_j_per_sample: float
+    bias_j_per_sample: float
     peripheral_j_per_sample: float
     total_j_per_sample: float
     memristor_count: int
@@ -73,6 +75,9 @@ def estimate_physical_kan_inference_energy(
     x: torch.Tensor,
     read_time_s: float = 1e-9,
     peripheral_j_per_sample: float = 0.0,
+    tanh_energy_j_per_activation: float = 0.0,
+    clip_energy_j_per_activation: float = 0.0,
+    bias_energy_j_per_output: float = 0.0,
 ) -> InferenceEnergyBreakdown:
     """Estimate average physical KAN inference energy per sample."""
 
@@ -80,19 +85,32 @@ def estimate_physical_kan_inference_energy(
         raise ValueError("read_time_s must be positive")
     if peripheral_j_per_sample < 0.0:
         raise ValueError("peripheral_j_per_sample must be non-negative")
+    if tanh_energy_j_per_activation < 0.0:
+        raise ValueError("tanh_energy_j_per_activation must be non-negative")
+    if clip_energy_j_per_activation < 0.0:
+        raise ValueError("clip_energy_j_per_activation must be non-negative")
+    if bias_energy_j_per_output < 0.0:
+        raise ValueError("bias_energy_j_per_output must be non-negative")
 
     batch_size = max(int(x.shape[0]), 1)
     total_rram_energy = torch.tensor(0.0, dtype=x.dtype, device=x.device)
+    normalization_j_per_sample = 0.0
+    bias_j_per_sample = 0.0
     current = x
     for index, layer in enumerate(model.layers):
         voltage_rows = layer.voltage_rows(current)
         conductance_sum = layer.g_pos.detach() + layer.g_neg.detach()
         layer_energy = torch.einsum("bik,oik->b", voltage_rows.pow(2), conductance_sum)
         total_rram_energy = total_rram_energy + layer_energy.sum() * read_time_s
+        bias_j_per_sample += layer.out_features * bias_energy_j_per_output
         current = layer(current)
         if index < len(model.layers) - 1:
             from kan_memristor.models import apply_inter_layer_normalization
 
+            if layer.forward_config.inter_layer_normalization == "tanh":
+                normalization_j_per_sample += layer.out_features * tanh_energy_j_per_activation
+            elif layer.forward_config.inter_layer_normalization == "clip":
+                normalization_j_per_sample += layer.out_features * clip_energy_j_per_activation
             current = apply_inter_layer_normalization(
                 current,
                 mode=layer.forward_config.inter_layer_normalization,
@@ -103,10 +121,12 @@ def estimate_physical_kan_inference_energy(
     gilbert_count = model.count_gilbert_multipliers()
     gilbert_params = model.layers[0].forward_config.gilbert_parameters
     gilbert_j_per_sample = GilbertMultiplier(gilbert_params).energy_for_operations(gilbert_count)
-    total = rram_j_per_sample + gilbert_j_per_sample + peripheral_j_per_sample
+    total = rram_j_per_sample + gilbert_j_per_sample + normalization_j_per_sample + bias_j_per_sample + peripheral_j_per_sample
     return InferenceEnergyBreakdown(
         rram_read_j_per_sample=rram_j_per_sample,
         gilbert_j_per_sample=gilbert_j_per_sample,
+        normalization_j_per_sample=normalization_j_per_sample,
+        bias_j_per_sample=bias_j_per_sample,
         peripheral_j_per_sample=peripheral_j_per_sample,
         total_j_per_sample=total,
         memristor_count=model.count_memristors(),

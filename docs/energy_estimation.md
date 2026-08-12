@@ -4,7 +4,7 @@ This experiment estimates the energy consumption of the normalized complete-phys
 
 ## Energy model
 
-The physical KAN inference energy is separated into RRAM read energy and Gilbert multiplier energy.
+The physical KAN inference energy is separated into RRAM read energy, Gilbert multiplier energy, optional normalization energy, optional bias-add energy, and manually supplied peripheral energy.
 
 ### RRAM read energy
 
@@ -37,6 +37,23 @@ The total Gilbert energy is:
 ```text
 E_Gilbert = number_of_multipliers * 44 fJ
 ```
+
+### Normalization, clipping, and bias energy
+
+The original lower-bound estimate ignored inter-layer normalization and bias addition. This is acceptable only when the goal is to isolate the dominant array and multiplier terms. Hardware tanh is not free: hardware tanh papers such as the Catmull-Rom spline implementation show that tanh needs a dedicated approximation circuit, although that paper emphasizes low-complexity area rather than a directly reusable energy/sample value.
+
+The code now exposes these terms explicitly:
+
+```text
+--tanh-energy-j-per-activation
+--clip-energy-j-per-activation
+--bias-energy-j-per-output
+--peripheral-energy-j
+```
+
+The defaults are `0`, because the project does not yet have a measured tanh, clip, bias, ADC, DAC, or controller implementation in the same technology node as the modeled memristive/Gilbert blocks. This keeps the published results as a transparent lower bound. For sensitivity analysis, set these arguments to assumed values, e.g. `1e-13`, `1e-12`, or `1e-11` joules per operation.
+
+Clipping can often be implemented as a limiter/comparator-like saturation and may be much cheaper than tanh. Bias addition can be implemented by an extra fixed voltage/current row or a small offset circuit, so it is usually expected to be smaller than thousands of crossbar reads or multiplier operations, but it should not be hidden when doing chip-level accounting.
 
 ### Programming energy
 

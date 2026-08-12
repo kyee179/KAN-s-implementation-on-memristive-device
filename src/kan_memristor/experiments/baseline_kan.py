@@ -17,7 +17,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from kan_memristor.datasets import SupervisedDataset, load_dataset
-from kan_memristor.models import BSplineKAN, OddPolynomialKAN, count_parameters, make_mlp
+from kan_memristor.models import BSplineKAN, GeneralizedBellKAN, OddPolynomialKAN, count_parameters, make_mlp
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,8 @@ def _make_model(config: TrainConfig) -> nn.Module:
         return BSplineKAN(config.widths, num_basis=config.num_basis, degree=config.spline_degree)
     if config.model == "odd_poly_kan":
         return OddPolynomialKAN(config.widths, powers=config.powers)
+    if config.model == "gbf_kan":
+        return GeneralizedBellKAN(config.widths)
     if config.model == "mlp":
         return make_mlp(config.widths)
     raise ValueError(f"Unknown model: {config.model}")
@@ -67,6 +69,8 @@ def _loss_for_task(task: str) -> nn.Module:
         return nn.MSELoss()
     if task == "classification":
         return nn.BCEWithLogitsLoss()
+    if task == "multiclass_classification":
+        return nn.CrossEntropyLoss()
     raise ValueError(f"Unknown task: {task}")
 
 
@@ -81,6 +85,10 @@ def _evaluate(model: nn.Module, dataset: SupervisedDataset, loss_fn: nn.Module) 
     if dataset.task == "regression":
         mse = float(np.mean((predictions - dataset.y_test) ** 2))
         return loss, mse, None, predictions
+    if dataset.task == "multiclass_classification":
+        classes = np.argmax(predictions, axis=1)
+        accuracy = float(np.mean(classes == dataset.y_test))
+        return loss, None, accuracy, predictions
     probabilities = 1.0 / (1.0 + np.exp(-np.clip(predictions, -60.0, 60.0)))
     classes = (probabilities >= 0.5).astype(np.float32)
     accuracy = float(np.mean(classes == dataset.y_test))
@@ -134,17 +142,28 @@ def _plot_predictions(dataset: SupervisedDataset, predictions: np.ndarray, outpu
         axes[1].set_title("prediction")
         fig.colorbar(sc0, ax=axes[0], fraction=0.046)
         fig.colorbar(sc1, ax=axes[1], fraction=0.046)
-    else:
+    elif dataset.task == "classification" and dataset.x_test.shape[1] == 2:
         target = dataset.y_test[:, 0]
         pred = predictions[:, 0]
         axes[0].scatter(dataset.x_test[:, 0], dataset.x_test[:, 1], c=target, s=8, cmap="coolwarm", vmin=0, vmax=1)
         axes[1].scatter(dataset.x_test[:, 0], dataset.x_test[:, 1], c=pred, s=8, cmap="coolwarm", vmin=0, vmax=1)
         axes[0].set_title("target class")
         axes[1].set_title("predicted probability")
+    else:
+        target = dataset.y_test.reshape(-1)
+        pred = np.argmax(predictions, axis=1) if predictions.ndim > 1 and predictions.shape[1] > 1 else (predictions[:, 0] >= 0.0)
+        labels = np.arange(int(max(target.max(initial=0), pred.max(initial=0))) + 1)
+        target_counts = np.bincount(target.astype(int), minlength=len(labels))
+        pred_counts = np.bincount(pred.astype(int), minlength=len(labels))
+        axes[0].bar(labels, target_counts)
+        axes[1].bar(labels, pred_counts)
+        axes[0].set_title("target classes")
+        axes[1].set_title("predicted classes")
     for axis in axes:
-        axis.set_aspect("equal", adjustable="box")
-        axis.set_xlabel("x")
-        axis.set_ylabel("y")
+        if dataset.x_test.shape[1] == 2:
+            axis.set_aspect("equal", adjustable="box")
+            axis.set_xlabel("x")
+            axis.set_ylabel("y")
     fig.suptitle(title)
     fig.savefig(output_path, dpi=160)
     plt.close(fig)
@@ -152,15 +171,20 @@ def _plot_predictions(dataset: SupervisedDataset, predictions: np.ndarray, outpu
 
 def default_widths(dataset: str, model: str) -> list[int]:
     if dataset == "complicated_function":
-        if model in {"kan", "odd_poly_kan"}:
+        if model in {"kan", "odd_poly_kan", "gbf_kan"}:
             return [2, 16, 16, 1]
         if model == "mlp":
             return [2, 64, 64, 1]
     if dataset == "taglietti_yinyang":
-        if model in {"kan", "odd_poly_kan"}:
+        if model in {"kan", "odd_poly_kan", "gbf_kan"}:
             return [2, 12, 1]
         if model == "mlp":
             return [2, 64, 64, 1]
+    if dataset in {"mnist", "fashion_mnist", "fmnist"}:
+        if model in {"kan", "odd_poly_kan", "gbf_kan"}:
+            return [784, 32, 10]
+        if model == "mlp":
+            return [784, 128, 10]
     raise ValueError(f"Unknown dataset/model combination: {dataset}/{model}")
 
 

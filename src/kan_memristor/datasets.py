@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -120,9 +121,79 @@ def make_yinyang_classification(
     )
 
 
+def make_image_classification_from_arrays(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    x_test: np.ndarray,
+    y_test: np.ndarray,
+    name: str,
+    n_train: int,
+    n_test: int,
+) -> SupervisedDataset:
+    """Flatten image arrays and scale pixels to [-1, 1]."""
+
+    x_train = x_train[:n_train].astype(np.float32)
+    x_test = x_test[:n_test].astype(np.float32)
+    if x_train.max(initial=0.0) > 1.0:
+        x_train = x_train / 255.0
+    if x_test.max(initial=0.0) > 1.0:
+        x_test = x_test / 255.0
+    x_train = (2.0 * x_train.reshape(len(x_train), -1) - 1.0).astype(np.float32)
+    x_test = (2.0 * x_test.reshape(len(x_test), -1) - 1.0).astype(np.float32)
+    return SupervisedDataset(
+        x_train=x_train,
+        y_train=y_train[:n_train].astype(np.int64),
+        x_test=x_test,
+        y_test=y_test[:n_test].astype(np.int64),
+        task="multiclass_classification",
+        name=name,
+    )
+
+
+def make_torchvision_image_classification(
+    name: str,
+    n_train: int = 4096,
+    n_test: int = 1024,
+    seed: int = 42,
+    data_dir: str | Path = "data/raw/torchvision",
+) -> SupervisedDataset:
+    """Load MNIST or Fashion-MNIST through torchvision and return subsets."""
+
+    try:
+        from torchvision.datasets import FashionMNIST, MNIST
+    except ImportError as exc:
+        raise ImportError("torchvision is required for MNIST and Fashion-MNIST datasets") from exc
+
+    dataset_class = {
+        "mnist": MNIST,
+        "fashion_mnist": FashionMNIST,
+        "fmnist": FashionMNIST,
+    }.get(name)
+    if dataset_class is None:
+        raise ValueError(f"Unknown image dataset: {name}")
+    root = Path(data_dir)
+    train = dataset_class(root=str(root), train=True, download=True)
+    test = dataset_class(root=str(root), train=False, download=True)
+    generator = _rng(seed)
+    train_indices = generator.permutation(len(train.data))[:n_train]
+    test_indices = generator.permutation(len(test.data))[:n_test]
+    canonical_name = "fashion_mnist" if name in {"fashion_mnist", "fmnist"} else "mnist"
+    return make_image_classification_from_arrays(
+        train.data.numpy()[train_indices],
+        train.targets.numpy()[train_indices],
+        test.data.numpy()[test_indices],
+        test.targets.numpy()[test_indices],
+        name=canonical_name,
+        n_train=n_train,
+        n_test=n_test,
+    )
+
+
 def load_dataset(name: str, n_train: int, n_test: int, seed: int) -> SupervisedDataset:
     if name == "complicated_function":
         return make_complicated_regression(n_train=n_train, n_test=n_test, seed=seed)
     if name == "taglietti_yinyang":
         return make_yinyang_classification(n_train=n_train, n_test=n_test, seed=seed)
+    if name in {"mnist", "fashion_mnist", "fmnist"}:
+        return make_torchvision_image_classification(name, n_train=n_train, n_test=n_test, seed=seed)
     raise ValueError(f"Unknown dataset: {name}")

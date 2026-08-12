@@ -37,6 +37,26 @@ def test_physical_kan_inference_energy_is_positive():
     assert energy.memristor_count == physical.count_memristors()
 
 
+def test_physical_kan_energy_can_include_normalization_and_bias():
+    software = OddPolynomialKAN([2, 3, 1], inter_layer_normalization="tanh", normalization_gain=2.0)
+    physical = PhysicalOddPolynomialKAN.from_software_model(
+        software,
+        mapper=RRAMWeightMapper(n_states=16),
+        input_scale_v=0.2,
+        forward_config=PhysicalForwardConfig(use_gilbert_multiplier=True, inter_layer_normalization="tanh", normalization_gain=2.0),
+    )
+    energy = estimate_physical_kan_inference_energy(
+        physical,
+        torch.ones(4, 2),
+        read_time_s=1e-9,
+        tanh_energy_j_per_activation=1e-12,
+        bias_energy_j_per_output=2e-12,
+    )
+    assert energy.normalization_j_per_sample == 3e-12
+    assert energy.bias_j_per_sample == 8e-12
+    assert energy.total_j_per_sample > energy.rram_read_j_per_sample + energy.gilbert_j_per_sample
+
+
 def test_dynamic_pulse_energy_uses_set_and_reset_counts():
     energy = estimate_dynamic_pulse_energy(DynamicPulseConfig(), set_pulses=3, reset_pulses=5)
     assert energy.set_pulse_j > 0.0

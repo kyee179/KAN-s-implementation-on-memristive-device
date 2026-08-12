@@ -91,6 +91,8 @@ def _loss_for_task(task: str) -> nn.Module:
         return nn.MSELoss()
     if task == "classification":
         return nn.BCEWithLogitsLoss()
+    if task == "multiclass_classification":
+        return nn.CrossEntropyLoss()
     raise ValueError(f"Unknown task: {task}")
 
 
@@ -116,6 +118,10 @@ def _evaluate(
     if dataset.task == "regression":
         mse = float(np.mean((predictions - y_np) ** 2))
         return loss, mse, None, predictions
+    if dataset.task == "multiclass_classification":
+        classes = np.argmax(predictions, axis=1)
+        accuracy = float(np.mean(classes == y_np))
+        return loss, None, accuracy, predictions
     probabilities = 1.0 / (1.0 + np.exp(-np.clip(predictions, -60.0, 60.0)))
     classes = (probabilities >= 0.5).astype(np.float32)
     accuracy = float(np.mean(classes == y_np))
@@ -263,17 +269,28 @@ def _plot_predictions(dataset: SupervisedDataset, predictions: np.ndarray, outpu
         axes[1].set_title("hardware prediction")
         fig.colorbar(sc0, ax=axes[0], fraction=0.046)
         fig.colorbar(sc1, ax=axes[1], fraction=0.046)
-    else:
+    elif dataset.task == "classification" and dataset.x_test.shape[1] == 2:
         target = dataset.y_test[:, 0]
         pred = predictions[:, 0]
         axes[0].scatter(dataset.x_test[:, 0], dataset.x_test[:, 1], c=target, s=8, cmap="coolwarm", vmin=0, vmax=1)
         axes[1].scatter(dataset.x_test[:, 0], dataset.x_test[:, 1], c=pred, s=8, cmap="coolwarm", vmin=0, vmax=1)
         axes[0].set_title("target class")
         axes[1].set_title("hardware probability")
+    else:
+        target = dataset.y_test.reshape(-1)
+        pred = np.argmax(predictions, axis=1) if predictions.ndim > 1 and predictions.shape[1] > 1 else (predictions[:, 0] >= 0.0)
+        labels = np.arange(int(max(target.max(initial=0), pred.max(initial=0))) + 1)
+        target_counts = np.bincount(target.astype(int), minlength=len(labels))
+        pred_counts = np.bincount(pred.astype(int), minlength=len(labels))
+        axes[0].bar(labels, target_counts)
+        axes[1].bar(labels, pred_counts)
+        axes[0].set_title("target classes")
+        axes[1].set_title("hardware classes")
     for axis in axes:
-        axis.set_aspect("equal", adjustable="box")
-        axis.set_xlabel("x")
-        axis.set_ylabel("y")
+        if dataset.x_test.shape[1] == 2:
+            axis.set_aspect("equal", adjustable="box")
+            axis.set_xlabel("x")
+            axis.set_ylabel("y")
     fig.suptitle(title)
     fig.savefig(output_path, dpi=160)
     plt.close(fig)

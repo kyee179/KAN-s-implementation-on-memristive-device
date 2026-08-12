@@ -53,6 +53,9 @@ class GBFTrainConfig:
     gbf_cell_power_w: float
     tia_power_w: float
     read_time_s: float
+    tanh_energy_j_per_activation: float
+    clip_energy_j_per_activation: float
+    bias_energy_j_per_output: float
     inter_layer_normalization: str
     normalization_gain: float
 
@@ -72,6 +75,8 @@ class GBFStageResult:
     memristor_count: int | None
     frontend_j_per_sample: float | None
     crossbar_read_j_per_sample: float | None
+    normalization_j_per_sample: float | None
+    bias_j_per_sample: float | None
     total_inference_j_per_sample: float | None
     current_to_voltage_gains: list[float] | None
     config: dict
@@ -87,6 +92,8 @@ def _loss_for_task(task: str) -> nn.Module:
         return nn.MSELoss()
     if task == "classification":
         return nn.BCEWithLogitsLoss()
+    if task == "multiclass_classification":
+        return nn.CrossEntropyLoss()
     raise ValueError(f"Unknown task: {task}")
 
 
@@ -108,6 +115,10 @@ def _evaluate(
     if dataset.task == "regression":
         mse = float(np.mean((predictions - y_np) ** 2))
         return loss, mse, None, predictions
+    if dataset.task == "multiclass_classification":
+        classes = np.argmax(predictions, axis=1)
+        accuracy = float(np.mean(classes == y_np))
+        return loss, None, accuracy, predictions
     probabilities = 1.0 / (1.0 + np.exp(-np.clip(predictions, -60.0, 60.0)))
     classes = (probabilities >= 0.5).astype(np.float32)
     accuracy = float(np.mean(classes == y_np))
@@ -145,22 +156,36 @@ def _train_software_model(dataset: SupervisedDataset, config: GBFTrainConfig) ->
 def _estimate_gbf_inference_energy(
     model: PhysicalGeneralizedBellKAN,
     x: torch.Tensor,
-    read_time_s: float,
-) -> tuple[float, float, float]:
+    config: GBFTrainConfig,
+) -> tuple[float, float, float, float, float]:
+    read_time_s = config.read_time_s
     if read_time_s <= 0.0:
         raise ValueError("read_time_s must be positive")
+    if config.tanh_energy_j_per_activation < 0.0:
+        raise ValueError("tanh_energy_j_per_activation must be non-negative")
+    if config.clip_energy_j_per_activation < 0.0:
+        raise ValueError("clip_energy_j_per_activation must be non-negative")
+    if config.bias_energy_j_per_output < 0.0:
+        raise ValueError("bias_energy_j_per_output must be non-negative")
     batch_size = max(int(x.shape[0]), 1)
     total_crossbar = torch.tensor(0.0, dtype=x.dtype, device=x.device)
+    normalization_j = 0.0
+    bias_j = 0.0
     current = x
     for index, layer in enumerate(model.layers):
         rows = layer.tia_voltages(current)
         conductance_sum = layer.g_pos.detach() + layer.g_neg.detach()
         layer_energy = torch.einsum("bik,oik->b", rows.pow(2), conductance_sum)
         total_crossbar = total_crossbar + layer_energy.sum() * read_time_s
+        bias_j += layer.out_features * config.bias_energy_j_per_output
         current = layer(current)
         if index < len(model.layers) - 1:
             from kan_memristor.models import apply_inter_layer_normalization
 
+            if layer.forward_config.inter_layer_normalization == "tanh":
+                normalization_j += layer.out_features * config.tanh_energy_j_per_activation
+            elif layer.forward_config.inter_layer_normalization == "clip":
+                normalization_j += layer.out_features * config.clip_energy_j_per_activation
             current = apply_inter_layer_normalization(
                 current,
                 mode=layer.forward_config.inter_layer_normalization,
@@ -169,7 +194,7 @@ def _estimate_gbf_inference_energy(
     crossbar_j = float((total_crossbar / batch_size).detach().cpu().item())
     frontend_power = model.estimate_frontend_power_w()
     frontend_j = frontend_power * read_time_s
-    return frontend_j, crossbar_j, frontend_j + crossbar_j
+    return frontend_j, crossbar_j, normalization_j, bias_j, frontend_j + crossbar_j + normalization_j + bias_j
 
 
 def _stage_result(
@@ -183,7 +208,7 @@ def _stage_result(
     test_loss, test_mse, test_accuracy, predictions = _evaluate(model, dataset, loss_fn, split="test")
     if isinstance(model, PhysicalGeneralizedBellKAN):
         x = torch.from_numpy(dataset.x_test)
-        frontend_j, crossbar_j, total_j = _estimate_gbf_inference_energy(model, x, config.read_time_s)
+        frontend_j, crossbar_j, normalization_j, bias_j, total_j = _estimate_gbf_inference_energy(model, x, config)
         gbf_count: int | None = model.count_gbf_cells()
         tia_count: int | None = model.count_tias()
         memristor_count: int | None = model.count_memristors()
@@ -191,6 +216,8 @@ def _stage_result(
     else:
         frontend_j = None
         crossbar_j = None
+        normalization_j = None
+        bias_j = None
         total_j = None
         gbf_count = None
         tia_count = None
@@ -210,6 +237,8 @@ def _stage_result(
         memristor_count=memristor_count,
         frontend_j_per_sample=frontend_j,
         crossbar_read_j_per_sample=crossbar_j,
+        normalization_j_per_sample=normalization_j,
+        bias_j_per_sample=bias_j,
         total_inference_j_per_sample=total_j,
         current_to_voltage_gains=gains,
         config=asdict(config),
@@ -229,17 +258,28 @@ def _plot_predictions(dataset: SupervisedDataset, predictions: np.ndarray, outpu
         axes[1].set_title("prediction")
         fig.colorbar(sc0, ax=axes[0], fraction=0.046)
         fig.colorbar(sc1, ax=axes[1], fraction=0.046)
-    else:
+    elif dataset.task == "classification" and dataset.x_test.shape[1] == 2:
         target = dataset.y_test[:, 0]
         pred = predictions[:, 0]
         axes[0].scatter(dataset.x_test[:, 0], dataset.x_test[:, 1], c=target, s=8, cmap="coolwarm", vmin=0, vmax=1)
         axes[1].scatter(dataset.x_test[:, 0], dataset.x_test[:, 1], c=pred, s=8, cmap="coolwarm", vmin=0, vmax=1)
         axes[0].set_title("target class")
         axes[1].set_title("predicted probability")
+    else:
+        target = dataset.y_test.reshape(-1)
+        pred = np.argmax(predictions, axis=1) if predictions.ndim > 1 and predictions.shape[1] > 1 else (predictions[:, 0] >= 0.0)
+        labels = np.arange(int(max(target.max(initial=0), pred.max(initial=0))) + 1)
+        target_counts = np.bincount(target.astype(int), minlength=len(labels))
+        pred_counts = np.bincount(pred.astype(int), minlength=len(labels))
+        axes[0].bar(labels, target_counts)
+        axes[1].bar(labels, pred_counts)
+        axes[0].set_title("target classes")
+        axes[1].set_title("predicted classes")
     for axis in axes:
-        axis.set_aspect("equal", adjustable="box")
-        axis.set_xlabel("x")
-        axis.set_ylabel("y")
+        if dataset.x_test.shape[1] == 2:
+            axis.set_aspect("equal", adjustable="box")
+            axis.set_xlabel("x")
+            axis.set_ylabel("y")
     fig.suptitle(title)
     fig.savefig(output_path, dpi=160)
     plt.close(fig)
@@ -267,6 +307,9 @@ def run_dataset(dataset_name: str, args: argparse.Namespace) -> list[GBFStageRes
         gbf_cell_power_w=args.gbf_cell_power_w,
         tia_power_w=args.tia_power_w,
         read_time_s=args.read_time_s,
+        tanh_energy_j_per_activation=args.tanh_energy_j_per_activation,
+        clip_energy_j_per_activation=args.clip_energy_j_per_activation,
+        bias_energy_j_per_output=args.bias_energy_j_per_output,
         inter_layer_normalization=args.inter_layer_normalization,
         normalization_gain=args.normalization_gain,
     )
@@ -352,6 +395,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gbf-cell-power-w", type=float, default=4.1e-6)
     parser.add_argument("--tia-power-w", type=float, default=1e-6)
     parser.add_argument("--read-time-s", type=float, default=1e-9)
+    parser.add_argument("--tanh-energy-j-per-activation", type=float, default=0.0)
+    parser.add_argument("--clip-energy-j-per-activation", type=float, default=0.0)
+    parser.add_argument("--bias-energy-j-per-output", type=float, default=0.0)
     parser.add_argument("--current-to-voltage-gain", type=float, default=None)
     parser.add_argument("--adc-clip-voltage", type=float, default=None)
     parser.add_argument("--inter-layer-normalization", choices=["none", "tanh", "clip"], default="tanh")

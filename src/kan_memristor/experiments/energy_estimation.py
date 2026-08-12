@@ -120,6 +120,9 @@ def run_dataset(dataset_name: str, args: argparse.Namespace) -> EnergyExperiment
         x_energy,
         read_time_s=args.read_time_s,
         peripheral_j_per_sample=args.peripheral_energy_j,
+        tanh_energy_j_per_activation=args.tanh_energy_j_per_activation,
+        clip_energy_j_per_activation=args.clip_energy_j_per_activation,
+        bias_energy_j_per_output=args.bias_energy_j_per_output,
     )
     mlp_widths = default_widths(dataset_name, "mlp")
     mlp_energy = estimate_mlp_inference_energy(mlp_widths, energy_per_mac_j=args.energy_per_mac_j)
@@ -142,6 +145,9 @@ def run_dataset(dataset_name: str, args: argparse.Namespace) -> EnergyExperiment
             "read_time_s": args.read_time_s,
             "energy_per_mac_j": args.energy_per_mac_j,
             "peripheral_energy_j": args.peripheral_energy_j,
+            "tanh_energy_j_per_activation": args.tanh_energy_j_per_activation,
+            "clip_energy_j_per_activation": args.clip_energy_j_per_activation,
+            "bias_energy_j_per_output": args.bias_energy_j_per_output,
             "energy_samples": args.energy_samples,
             "mlp_widths": mlp_widths,
         },
@@ -194,6 +200,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--read-time-s", type=float, default=1e-9)
     parser.add_argument("--energy-per-mac-j", type=float, default=4.6e-12)
     parser.add_argument("--peripheral-energy-j", type=float, default=0.0)
+    parser.add_argument("--tanh-energy-j-per-activation", type=float, default=0.0)
+    parser.add_argument("--clip-energy-j-per-activation", type=float, default=0.0)
+    parser.add_argument("--bias-energy-j-per-output", type=float, default=0.0)
     parser.add_argument("--set-pulses", type=int, default=0)
     parser.add_argument("--reset-pulses", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
