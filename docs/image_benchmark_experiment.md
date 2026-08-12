@@ -107,9 +107,52 @@ Best observed results:
 
 The unrestricted result is much more favorable to KANs than the matched-parameter pilot. The original software B-spline KAN is the strongest KAN-family model on MNIST in this run, but it does not beat the MLP and it has more trainable parameters. Gilbert-KAN becomes close to the MLP on Fashion-MNIST and reasonably strong on MNIST. GBF-KAN also improves strongly with capacity, especially on MNIST, but it still uses many more memristive devices and remains behind the MLP and Gilbert-KAN for raw flattened images.
 
+## Full-Dataset Results
+
+This run uses the full torchvision train/test splits for MNIST and Fashion-MNIST: `60,000` training images and `10,000` test images. To make the comparison closer to the FastKAN MNIST setup, all four models use hidden width `64`, `20` epochs, batch size `64`, and AdamW with learning rate `1e-3`.
+
+Command pattern:
+
+```powershell
+python -m kan_memristor.experiments.image_benchmark `
+  --datasets mnist fashion_mnist `
+  --models mlp software_kan gilbert_kan gbf_kan `
+  --n-train 60000 `
+  --n-test 10000 `
+  --hidden-width 64 `
+  --mlp-hidden-width 64 `
+  --spline-hidden-width 64 `
+  --kan-hidden-width 64 `
+  --gbf-hidden-width 64 `
+  --epochs 20 `
+  --batch-size 64 `
+  --learning-rate 1e-3
+```
+
+The actual run was split by model to keep long CPU jobs easier to resume and inspect.
+
+| Dataset | Model | Stage | Accuracy | Trainable parameters | Physical resources |
+| --- | --- | --- | ---: | ---: | --- |
+| MNIST | MLP `[784,64,10]` | Software | `97.51%` | `50,890` | - |
+| MNIST | Software B-spline KAN `[784,64,10]` | Software | `91.53%` | `711,498` | - |
+| MNIST | Gilbert-KAN `[784,64,10]` | Software pretrain | `94.64%` | `152,522` | - |
+| MNIST | Gilbert-KAN `[784,64,10]` | Physical mapped | `93.84%` | `304,970` | `304,896` memristors, `5,088` Gilbert multipliers |
+| MNIST | GBF-KAN `[784,64,10]` | Software pretrain | `89.65%` | `457,418` | - |
+| MNIST | GBF-KAN `[784,64,10]` | Physical mapped | `89.46%` | `914,762` | `914,688` memristors, `7,632` GBF cells/TIAs |
+| Fashion-MNIST | MLP `[784,64,10]` | Software | `87.98%` | `50,890` | - |
+| Fashion-MNIST | Software B-spline KAN `[784,64,10]` | Software | `84.79%` | `711,498` | - |
+| Fashion-MNIST | Gilbert-KAN `[784,64,10]` | Software pretrain | `85.53%` | `152,522` | - |
+| Fashion-MNIST | Gilbert-KAN `[784,64,10]` | Physical mapped | `83.10%` | `304,970` | `304,896` memristors, `5,088` Gilbert multipliers |
+| Fashion-MNIST | GBF-KAN `[784,64,10]` | Software pretrain | `82.65%` | `457,418` | - |
+| Fashion-MNIST | GBF-KAN `[784,64,10]` | Physical mapped | `82.32%` | `914,762` | `914,688` memristors, `7,632` GBF cells/TIAs |
+
+The full-data run explains why the FastKAN paper can report MNIST accuracy around `0.97`: even the small MLP baseline reaches `97.51%` when trained on the full dataset. The earlier pilot was mostly limited by the `4,096`-sample training subset.
+
+Among the KAN-family models, Gilbert-KAN is strongest in this full-data image setting. Its physical mapping loses only `0.80` percentage points on MNIST, but loses `2.43` percentage points on Fashion-MNIST. GBF-KAN maps almost exactly from software to physical form, but the fixed basis is weaker on raw flattened pixels. The original software B-spline KAN is not competitive with the FastKAN-style result here, which likely reflects implementation and training differences: this repo's B-spline model does not use FastKAN's layer normalization, RBF approximation, scheduler, or SiLU base update.
+
 ## Interpretation
 
-The MLP is the strongest raw-pixel baseline in these pilot runs. The original software B-spline KAN is competitive, reaching `90.09%` on MNIST and `83.06%` on Fashion-MNIST at width 64, but increasing to width 128 lowered test accuracy slightly while reducing training loss, suggesting overfitting in the small-data pilot. With the corrected same-node comparison, Gilbert-KAN becomes much stronger than in the matched-parameter run, reaching `66.80%` mapped accuracy on MNIST and `72.07%` on Fashion-MNIST. This confirms that hidden-node count matters for KAN-style comparisons. The physical mapping still loses some MNIST accuracy, consistent with earlier findings that the soft-clipped Gilbert multiplier changes the effective basis.
+The MLP is the strongest raw-pixel baseline in these runs. On the full dataset, the MLP reaches `97.51%` on MNIST and `87.98%` on Fashion-MNIST with only `50,890` trainable parameters. The original software B-spline KAN is competitive in the small pilot, reaching `90.09%` on MNIST and `83.06%` on Fashion-MNIST at width 64, but it does not reproduce the FastKAN paper's MNIST result in this implementation. Increasing to width 128 lowered small-pilot test accuracy slightly while reducing training loss, suggesting overfitting in the small-data pilot. With the corrected same-node comparison, Gilbert-KAN becomes much stronger than in the matched-parameter run, reaching `66.80%` mapped accuracy on MNIST and `72.07%` on Fashion-MNIST. In the full-data run it reaches `93.84%` mapped MNIST accuracy and `83.10%` mapped Fashion-MNIST accuracy. This confirms that hidden-node count and training-set size both matter for KAN-style comparisons. The physical mapping still loses some accuracy, consistent with earlier findings that the soft-clipped Gilbert multiplier changes the effective basis.
 
 The fixed GBF-KAN performs very well on low-dimensional continuous inputs, but it is weaker on raw flattened images. Same-node comparison helps Fashion-MNIST but not MNIST; unrestricted capacity helps both, but at a high device-count cost. This is probably because fixed membership functions over individual pixel intensities do not capture spatial structure, and for MNIST many pixels are near the background value. Each pixel is treated independently on KAN edges, so the model has no convolutional locality or learned feature extractor.
 
