@@ -1,4 +1,4 @@
-"""Compare MLP, Gilbert-polynomial KAN, and GBF-KAN on MNIST-like datasets."""
+"""Compare MLP, software B-spline KAN, Gilbert-polynomial KAN, and GBF-KAN on MNIST-like datasets."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from kan_memristor.hardware.gbf_kan import GBFCellConfig, GBFForwardConfig, Phys
 from kan_memristor.hardware.gilbert_multiplier import GilbertMultiplierParameters
 from kan_memristor.hardware.memristor import RRAMWeightMapper
 from kan_memristor.hardware.physical_kan import DynamicPulseConfig, PhysicalForwardConfig, PhysicalOddPolynomialKAN
-from kan_memristor.models import GeneralizedBellKAN, OddPolynomialKAN, count_parameters, make_mlp
+from kan_memristor.models import BSplineKAN, GeneralizedBellKAN, OddPolynomialKAN, count_parameters, make_mlp
 
 
 @dataclass(frozen=True)
@@ -125,6 +125,7 @@ def _widths(hidden_width: int) -> list[int]:
 def run_dataset(dataset_name: str, args: argparse.Namespace) -> list[ImageBenchmarkResult]:
     _set_seed(args.seed)
     dataset = load_dataset(dataset_name, n_train=args.n_train, n_test=args.n_test, seed=args.seed)
+    spline_widths = _widths(args.spline_hidden_width)
     gilbert_widths = _widths(args.kan_hidden_width)
     gbf_widths = _widths(args.gbf_hidden_width)
     mapper = RRAMWeightMapper(n_states=args.n_states, r_lrs=args.r_lrs, r_hrs=args.r_hrs, seed=args.seed)
@@ -145,6 +146,30 @@ def run_dataset(dataset_name: str, args: argparse.Namespace) -> list[ImageBenchm
         mlp = make_mlp(mlp_widths)
         train_loss = _train(mlp, dataset, args.epochs, args.batch_size, args.learning_rate, args.seed)
         results.append(_result(dataset, "mlp", "software", mlp, train_loss, common_config | {"widths": mlp_widths}))
+
+    if any(model in args.models for model in ("kan", "software_kan", "spline_kan")):
+        _set_seed(args.seed)
+        spline_kan = BSplineKAN(
+            spline_widths,
+            num_basis=args.spline_num_basis,
+            degree=args.spline_degree,
+        )
+        train_loss = _train(spline_kan, dataset, args.epochs, args.batch_size, args.learning_rate, args.seed)
+        results.append(
+            _result(
+                dataset,
+                "software_kan",
+                "software",
+                spline_kan,
+                train_loss,
+                common_config
+                | {
+                    "widths": spline_widths,
+                    "num_basis": args.spline_num_basis,
+                    "spline_degree": args.spline_degree,
+                },
+            )
+        )
 
     if "gilbert_kan" in args.models:
         _set_seed(args.seed)
@@ -262,6 +287,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-train", type=int, default=4096)
     parser.add_argument("--n-test", type=int, default=1024)
     parser.add_argument("--hidden-width", type=int, default=32)
+    parser.add_argument("--spline-hidden-width", type=int, default=None)
     parser.add_argument("--kan-hidden-width", type=int, default=None)
     parser.add_argument("--gbf-hidden-width", type=int, default=None)
     parser.add_argument("--mlp-hidden-width", type=int, default=128)
@@ -269,6 +295,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--learning-rate", type=float, default=3e-3)
     parser.add_argument("--powers", nargs="+", type=int, default=[1, 3, 5])
+    parser.add_argument("--spline-num-basis", type=int, default=13)
+    parser.add_argument("--spline-degree", type=int, default=3)
     parser.add_argument("--num-basis", type=int, default=9)
     parser.add_argument("--basis-width", type=float, default=None)
     parser.add_argument("--slope", type=float, default=2.0)
@@ -289,6 +317,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.spline_hidden_width is None:
+        args.spline_hidden_width = args.hidden_width
     if args.kan_hidden_width is None:
         args.kan_hidden_width = args.hidden_width
     if args.gbf_hidden_width is None:

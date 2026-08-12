@@ -124,10 +124,10 @@ For the architecture and first results, see `docs/gbf_kan_experiment.md`.
 
 ## Image Benchmarks
 
-Run the MNIST/Fashion-MNIST pilot comparison for MLP, Gilbert-polynomial KAN, and fixed GBF-KAN:
+Run the MNIST/Fashion-MNIST pilot comparison for MLP, original software B-spline KAN, Gilbert-polynomial KAN, and fixed GBF-KAN:
 
 ```powershell
-python -m kan_memristor.experiments.image_benchmark
+python -m kan_memristor.experiments.image_benchmark --models mlp software_kan gilbert_kan gbf_kan
 ```
 
 For the pilot protocol and results, see `docs/image_benchmark_experiment.md`.
