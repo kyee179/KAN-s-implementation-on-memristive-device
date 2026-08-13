@@ -180,11 +180,6 @@ def default_widths(dataset: str, model: str) -> list[int]:
             return [2, 12, 1]
         if model == "mlp":
             return [2, 64, 64, 1]
-    if dataset in {"mnist", "fashion_mnist", "fmnist"}:
-        if model in {"kan", "odd_poly_kan", "gbf_kan"}:
-            return [784, 32, 10]
-        if model == "mlp":
-            return [784, 128, 10]
     raise ValueError(f"Unknown dataset/model combination: {dataset}/{model}")
 
 

@@ -1,6 +1,7 @@
 import numpy as np
+import pytest
 
-from kan_memristor.datasets import make_complicated_regression, make_image_classification_from_arrays, make_yinyang_classification
+from kan_memristor.datasets import load_dataset, make_complicated_regression, make_yinyang_classification
 
 
 def test_complicated_regression_shapes():
@@ -19,12 +20,6 @@ def test_yinyang_classification_labels_are_binary():
     assert 0.0 < dataset.y_train.mean() < 1.0
 
 
-def test_image_classification_arrays_are_flattened_and_scaled():
-    x_train = np.array([[[0, 255], [128, 64]], [[255, 0], [64, 128]]], dtype=np.uint8)
-    y_train = np.array([1, 2])
-    dataset = make_image_classification_from_arrays(x_train, y_train, x_train, y_train, "tiny_images", n_train=2, n_test=1)
-    assert dataset.x_train.shape == (2, 4)
-    assert dataset.y_train.dtype == np.int64
-    assert dataset.task == "multiclass_classification"
-    assert np.all(dataset.x_train >= -1.0)
-    assert np.all(dataset.x_train <= 1.0)
+def test_load_dataset_rejects_removed_image_datasets():
+    with pytest.raises(ValueError, match="Unknown dataset"):
+        load_dataset("image_dataset", n_train=8, n_test=4, seed=3)

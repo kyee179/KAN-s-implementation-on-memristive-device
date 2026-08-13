@@ -12,6 +12,5 @@ h5py
 pyyaml
 pytest
 torch
-torchvision
 torchaudio
 pykan
