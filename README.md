@@ -131,3 +131,13 @@ python -m kan_memristor.experiments.visualize_preserved_results
 ```
 
 For the comparison figure and summary table, see `docs/preserved_results_comparison.md`.
+
+## Paper-Ready Outputs
+
+Organize the useful accuracy and energy results for paper writing:
+
+```powershell
+python -m kan_memristor.experiments.prepare_paper_outputs
+```
+
+This creates `outputs/paper_ready/` with curated tables, figures, raw metrics, and a local README. For result-selection guidance, see `docs/paper_output_organization.md`.
